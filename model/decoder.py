@@ -1,3 +1,4 @@
+'''Implementation of flow matching decoder'''
 import torch
 from torch import nn
 from torchdyn import core as tdyn

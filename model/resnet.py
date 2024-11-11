@@ -3,10 +3,10 @@ Steps for implementation:
     - Implement the encoder from scratch. This should be some kind of ResNet probably?
     - Implement the flow matching decoder, using Neural ODE. Use Carol's code as reference, but DIY to understand it better.
     - Train the compression model
-    - Implement a normalizing flow model for parameter estimation. CAMELs has a reference for this sort of thing.
+    - Implement an MLP for parameter estimation. CAMELs has a reference for this sort of thing.
         - Train it on the latents.
 """
-
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -94,7 +94,7 @@ class ResNet(nn.Module):
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(512, latent_dim)
 
-    def _make_layer(self, out_channels, num_blocks, stride):
+    def _make_layer(self, out_channels, num_blocks, stride) -> nn.Sequential:
         strides = [stride] + [1] * (num_blocks - 1)
         layers = []
         for stride in strides:
@@ -102,8 +102,8 @@ class ResNet(nn.Module):
             self.in_channels = out_channels
         return nn.Sequential(*layers)
 
-    def forward(self, x):
-        """Forward pass of network"""
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Overloads forward method of nn.Module"""
         x = self.in_layer(x)
         for layer in self.resnet_layers:
             x = layer(x)
