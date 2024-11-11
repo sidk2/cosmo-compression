@@ -1,10 +1,5 @@
 """
-Steps for implementation:
-    - Implement the encoder from scratch. This should be some kind of ResNet probably?
-    - Implement the flow matching decoder, using Neural ODE. Use Carol's code as reference, but DIY to understand it better.
-    - Train the compression model
-    - Implement an MLP for parameter estimation. CAMELs has a reference for this sort of thing.
-        - Train it on the latents.
+Implements a ResNet, which will be used to encode CMD data for compression
 """
 import torch
 import torch.nn as nn
@@ -14,7 +9,7 @@ import torch.nn.functional as F
 class ResnetBlock(nn.Module):
     """Basic building block for ResNet"""
 
-    def __init__(self, in_channels, out_channels, stride):
+    def __init__(self, in_channels: int, out_channels: int, stride: int):
         super(ResnetBlock, self).__init__()
         self.convs = nn.ModuleList(
             [
@@ -47,7 +42,7 @@ class ResnetBlock(nn.Module):
                 nn.BatchNorm2d(out_channels),
             )
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass"""
         logits = self.convs[0](x)
         logits = self.batch_norms[0](logits)
@@ -62,7 +57,7 @@ class ResnetBlock(nn.Module):
 class ResNet(nn.Module):
     """Residual convolutional network (ResNet 18 architecture)"""
 
-    def __init__(self, in_channels, latent_dim):
+    def __init__(self, in_channels: int, latent_dim: int):
         super(ResNet, self).__init__()
         # CAMELS Multifield Dataset is 256x256
         self.in_channels = 64
@@ -94,7 +89,7 @@ class ResNet(nn.Module):
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(512, latent_dim)
 
-    def _make_layer(self, out_channels, num_blocks, stride) -> nn.Sequential:
+    def _make_layer(self, out_channels: int, num_blocks: int, stride: int) -> nn.Sequential:
         strides = [stride] + [1] * (num_blocks - 1)
         layers = []
         for stride in strides:

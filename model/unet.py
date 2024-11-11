@@ -144,6 +144,8 @@ class UNet(nn.Module):
         super(UNet, self).__init__()
         self.time_dim = time_dim
         self.n_channels = n_channels
+        
+        self.embedding_layer = nn.Embedding()
 
         self.inc = UNetConv(in_channels=n_channels, out_channels=64)
         self.down1 = DownStep(in_channels=64, out_channels=128)
@@ -173,7 +175,7 @@ class UNet(nn.Module):
         pos_enc = torch.cat([pos_enc_a, pos_enc_b], dim=-1)
         return pos_enc
 
-    def forward(self, x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, t: torch.Tensor, ) -> torch.Tensor:
         """Overloads forward method of nn.Module"""
         t = t.unsqueeze(-1)
         t = self.pos_encoding(t, self.time_dim)
