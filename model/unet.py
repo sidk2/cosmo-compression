@@ -90,13 +90,10 @@ class DownStep(nn.Module):
                 ),
             ]
         )
-        
+
         self.emb_layer = nn.Sequential(
             nn.SiLU(),
-            nn.Linear(
-                emb_dim,
-                out_channels
-            ),
+            nn.Linear(emb_dim, out_channels),
         )
 
     def forward(self, x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
@@ -144,8 +141,6 @@ class UNet(nn.Module):
         super(UNet, self).__init__()
         self.time_dim = time_dim
         self.n_channels = n_channels
-        
-        self.embedding_layer = nn.Embedding()
 
         self.inc = UNetConv(in_channels=n_channels, out_channels=64)
         self.down1 = DownStep(in_channels=64, out_channels=128)
@@ -154,7 +149,7 @@ class UNet(nn.Module):
         self.sa2 = SelfAttention(channels=256)
         self.down3 = DownStep(in_channels=256, out_channels=512)
         self.sa3 = SelfAttention(channels=512)
-        
+
         self.up1 = UpStep(in_channels=1024, out_channels=256)
         self.sa4 = SelfAttention(channels=256)
         self.up2 = UpStep(in_channels=512, out_channels=128)
@@ -162,24 +157,29 @@ class UNet(nn.Module):
         self.up3 = UpStep(in_channels=256, out_channels=64)
         self.sa6 = SelfAttention(channels=64)
         self.outc = nn.Conv2d(in_channels=64, out_channels=n_channels, kernel_size=1)
-        
+
     def pos_encoding(self, t: int, channels: int) -> torch.Tensor:
-        '''Generate sinusoidal timestep embedding'''
-        device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+        """Generate sinusoidal timestep embedding"""
+        device = (
+            torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+        )
         inv_freq = 1.0 / (
-            10000
-            ** (torch.arange(0, channels, 2, device=device).float() / channels)
+            10000 ** (torch.arange(0, channels, 2, device=device).float() / channels)
         )
         pos_enc_a = torch.sin(t.repeat(1, channels // 2) * inv_freq)
         pos_enc_b = torch.cos(t.repeat(1, channels // 2) * inv_freq)
         pos_enc = torch.cat([pos_enc_a, pos_enc_b], dim=-1)
         return pos_enc
 
-    def forward(self, x: torch.Tensor, t: torch.Tensor, ) -> torch.Tensor:
+    def forward(
+        self, x: torch.Tensor, t: torch.Tensor, z: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """Overloads forward method of nn.Module"""
         t = t.unsqueeze(-1)
         t = self.pos_encoding(t, self.time_dim)
-        
+        if z:
+            t += z
+
         x1 = self.inc(x)
         x2 = self.down1(x1, t)
         x2 = self.sa1(x2)
