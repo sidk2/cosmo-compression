@@ -62,7 +62,7 @@ class ResNet(nn.Module):
         # CAMELS Multifield Dataset is 256x256
         self.in_channels = 64
         self.in_layer = nn.Sequential(
-            [
+            
                 nn.Conv2d(
                     in_channels=in_channels,
                     out_channels=64,
@@ -74,7 +74,7 @@ class ResNet(nn.Module):
                 nn.BatchNorm2d(num_features=64),
                 nn.ReLU(),
                 nn.MaxPool2d(kernel_size=3, stride=2, padding=1),
-            ]
+            
         )
         self.resnet_layers = nn.ModuleList(
             [

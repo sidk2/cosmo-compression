@@ -3,6 +3,7 @@ import torch
 from torch import nn
 from torchdyn import core as tdyn
 
+
 class ConditionedVelocityModel(nn.Module):
     def __init__(self, velocity_model, h,):
         super(ConditionedVelocityModel, self).__init__()

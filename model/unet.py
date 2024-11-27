@@ -1,8 +1,38 @@
-"""Implements a UNet"""
+"""Implements a UNet
+
+Module TODOs:
+    - Implement layer masking and adaptive group normalization from SODA paper
+
+"""
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+
+class AdaGN(nn.Module):
+    """
+    AdaGN allows model to modulate layer activations with conditioning latent
+    """
+
+    def __init__(self, num_channels: int, num_groups: int):
+        super().__init__()
+        self.gn = nn.GroupNorm(num_channels=num_channels, num_groups=num_groups)
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        z_s: torch.Tensor,
+        z_b: torch.Tensor,
+        t_s: torch.Tensor | None = None,
+        t_b: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Overloads forward method of nn.Module"""
+        if t_s and t_b:
+            norm_x = z_s * (t_s * self.gn(x) + t_b) + z_b
+        else:
+            norm_x = z_s * self.gn(x) + z_b
+        return norm_x
 
 
 class SelfAttention(nn.Module):
@@ -38,6 +68,7 @@ class UNetConv(nn.Module):
         self,
         in_channels: int,
         out_channels: int,
+        latent_dim: int,
         int_channels: int | None = None,
         residual: bool = False,
     ):
@@ -45,20 +76,50 @@ class UNetConv(nn.Module):
         self.residual = residual
         if not int_channels:
             int_channels = out_channels
-        self.unet_conv = nn.Sequential(
-            nn.Conv2d(in_channels, int_channels, kernel_size=3, padding=1, bias=False),
-            nn.GroupNorm(1, int_channels),
-            nn.GELU(),
-            nn.Conv2d(int_channels, out_channels, kernel_size=3, padding=1, bias=False),
-            nn.GroupNorm(1, out_channels),
+        self.conv1 = nn.Conv2d(
+            in_channels, int_channels, kernel_size=3, padding=1, bias=False
         )
+        self.gn_1 = AdaGN(num_channels=int_channels, num_groups=8)
+        self.gelu = nn.GELU()
+        self.conv2 = nn.Conv2d(
+            int_channels, out_channels, kernel_size=3, padding=1, bias=False
+        )
+        self.gn_2 = AdaGN(num_channels=out_channels, num_groups=8)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        self.z_scale_proj_1 = nn.Linear(latent_dim, int_channels)
+        self.z_bias_proj_1 = nn.Linear(latent_dim, int_channels)
+        self.t_scale_proj_1 = nn.Linear(latent_dim, int_channels)
+        self.t_bias_proj_1 = nn.Linear(latent_dim, int_channels)
+
+        self.z_scale_proj_2 = nn.Linear(latent_dim, out_channels)
+        self.z_bias_proj_2 = nn.Linear(latent_dim, out_channels)
+        self.t_scale_proj_2 = nn.Linear(latent_dim, out_channels)
+        self.t_bias_proj_2 = nn.Linear(latent_dim, out_channels)
+
+    def forward(
+        self, x: torch.Tensor, z: torch.Tensor, t: torch.Tensor
+    ) -> torch.Tensor:
         """Overloads forward method of nn.Module"""
-        if self.residual:
-            return F.gelu(input=(x + self.unet_conv(x)))
-        else:
-            return self.unet_conv(x)
+
+        # t is shape [batch_size]
+        z_s1 = self.z_scale_proj_1(z)
+        z_b1 = self.z_bias_proj_1(z)
+        t_s1 = self.t_scale_proj_1(t)
+        t_b1 = self.t_bias_proj_1(t)
+
+        z_s2 = self.z_scale_proj_2(z)
+        z_b2 = self.z_bias_proj_2(z)
+        t_s2 = self.t_scale_proj_2(t)
+        t_b2 = self.t_bias_proj_2(t)
+
+        x = self.conv1(x)
+        x = self.gn_1(x, z_s1, z_b1, t_s1, t_b1)
+        x = self.gelu(x)
+        x = self.conv2(x)
+        x = self.gn_2(x, z_s2, z_b2, t_s2, t_b2)
+        x = x + self.gelu(x)
+
+        return x
 
 
 class DownStep(nn.Module):
@@ -76,30 +137,32 @@ class DownStep(nn.Module):
             self,
         ).__init__()
         int_channels = int_channels if int_channels else in_channels
-        self.layers = nn.Sequential(
-            [
-                nn.MaxPool2d(kernel_size=2),
-                UNetConv(
-                    in_channels=in_channels,
-                    out_channels=int_channels,
-                    residual=True,
-                ),
-                UNetConv(
-                    in_channels=int_channels,
-                    out_channels=out_channels,
-                ),
-            ]
+
+        self.pooling = nn.MaxPool2d(kernel_size=2)
+        self.conv1 = UNetConv(
+            in_channels=in_channels,
+            out_channels=int_channels,
+            latent_dim=emb_dim,
+            residual=True,
+        )
+        self.conv2 = UNetConv(
+            in_channels=int_channels,
+            out_channels=out_channels,
+            latent_dim=emb_dim,
+            residual=True,
         )
 
-        self.emb_layer = nn.Sequential(
-            nn.SiLU(),
-            nn.Linear(emb_dim, out_channels),
-        )
+        # self.emb_layer = nn.Sequential(
+        #     nn.SiLU(),
+        #     nn.Linear(emb_dim, out_channels),
+        # )
 
-    def forward(self, x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, x: torch.Tensor, z: torch.Tensor, t: torch.Tensor
+    ) -> torch.Tensor:
         """Overloads forward method of nn.Module"""
-        emb = self.emb_layer(t)[:, :, None, None].repeat(1, 1, x.shape[-2], x.shape[-1])
-        return self.layers(x) + emb
+        # emb = self.emb_layer(t)[:, :, None, None].repeat(1, 1, x.shape[-2], x.shape[-1])
+        return self.conv2(self.conv1(self.pooling(x), z, t), z, t)
 
 
 class UpStep(nn.Module):
@@ -110,8 +173,19 @@ class UpStep(nn.Module):
 
         self.up = nn.Upsample(scale_factor=2, mode="bilinear", align_corners=True)
         self.conv = nn.Sequential(
-            UNetConv(in_channels, in_channels, residual=True),
-            UNetConv(in_channels, out_channels, in_channels // 2),
+            UNetConv(
+                in_channels=in_channels,
+                out_channels=in_channels,
+                latent_dim=emb_dim,
+                residual=True,
+            ),
+            UNetConv(
+                in_channels=in_channels,
+                int_channels=in_channels // 2,
+                out_channels=out_channels,
+                latent_dim=emb_dim,
+                residual=True,
+            ),
         )
 
         self.emb_layer = nn.Sequential(
@@ -120,14 +194,14 @@ class UpStep(nn.Module):
         )
 
     def forward(
-        self, x: torch.Tensor, res_x: torch.Tensor, t: torch.Tensor
+        self, x: torch.Tensor, res_x: torch.Tensor, z: torch.Tensor, t: torch.Tensor
     ) -> torch.Tensor:
         """Overloads forward method of nn.Module"""
         x = self.up(x)
         x = torch.cat([res_x, x], dim=1)
-        x = self.conv(x)
-        emb = self.emb_layer(t)[:, :, None, None].repeat(1, 1, x.shape[-2], x.shape[-1])
-        return x + emb
+        x = self.conv(x, z, t)
+        # emb = self.emb_layer(t)[:, :, None, None].repeat(1, 1, x.shape[-2], x.shape[-1])
+        return x
 
 
 class UNet(nn.Module):
@@ -137,12 +211,18 @@ class UNet(nn.Module):
         self,
         n_channels: int,
         time_dim: int = 256,
+        latent_dim: int = 256,
     ):
         super(UNet, self).__init__()
         self.time_dim = time_dim
         self.n_channels = n_channels
 
-        self.inc = UNetConv(in_channels=n_channels, out_channels=64)
+        self.inc = UNetConv(
+            in_channels=n_channels,
+            out_channels=64,
+            latent_dim=latent_dim,
+            residual=True,
+        )
         self.down1 = DownStep(in_channels=64, out_channels=128)
         self.sa1 = SelfAttention(channels=128)
         self.down2 = DownStep(in_channels=128, out_channels=256)
@@ -177,22 +257,20 @@ class UNet(nn.Module):
         """Overloads forward method of nn.Module"""
         t = t.unsqueeze(-1)
         t = self.pos_encoding(t, self.time_dim)
-        if z:
-            t += z
 
         x1 = self.inc(x)
-        x2 = self.down1(x1, t)
+        x2 = self.down1(x1, t, z)
         x2 = self.sa1(x2)
-        x3 = self.down2(x2, t)
+        x3 = self.down2(x2, t, z)
         x3 = self.sa2(x3)
-        x4 = self.down3(x3, t)
+        x4 = self.down3(x3, t, z)
         x4 = self.sa3(x4)
 
-        x = self.up1(x4, x3, t)
+        x = self.up1(x4, x3, t, z)
         x = self.sa4(x)
-        x = self.up2(x, x2, t)
+        x = self.up2(x, x2, t, z)
         x = self.sa5(x)
-        x = self.up3(x, x1, t)
+        x = self.up3(x, x1, t, z)
         x = self.sa6(x)
         output = self.outc(x)
         return output
