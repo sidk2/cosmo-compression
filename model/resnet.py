@@ -33,7 +33,7 @@ class ResnetBlock(nn.Module):
                 nn.BatchNorm2d(out_channels),
             ]
         )
-        self.downsample = nn.Sequential()
+        # self.downsample = nn.Sequential()
         if stride != 1 or in_channels != out_channels:
             self.shortcut = nn.Sequential(
                 nn.Conv2d(
@@ -49,7 +49,7 @@ class ResnetBlock(nn.Module):
         logits = F.relu(logits)
         logits = self.convs[1](x)
         logits = self.batch_norms[1](logits)
-        logits += self.downsample(x)
+        # logits += self.downsample(x)
         logits = F.relu(logits)
         return logits
 

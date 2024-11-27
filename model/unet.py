@@ -28,10 +28,7 @@ class AdaGN(nn.Module):
         t_b: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Overloads forward method of nn.Module"""
-        if t_s and t_b:
-            norm_x = z_s * (t_s * self.gn(x) + t_b) + z_b
-        else:
-            norm_x = z_s * self.gn(x) + z_b
+        norm_x = z_s[:,:,None, None] * (t_s[:,:,None, None] * self.gn(x) + t_b[:,:,None, None]) + z_b[:,:,None, None]
         return norm_x
 
 
@@ -41,10 +38,10 @@ class SelfAttention(nn.Module):
     def __init__(self, channels: int):
         super(SelfAttention, self).__init__()
         self.channels = channels
-        self.mha = nn.MultiheadAttention(channels, 4, batch_first=True)
+        # self.mha = nn.MultiheadAttention(channels, 2, batch_first=True)
         self.ln = nn.LayerNorm([channels])
         self.ff_self = nn.Sequential(
-            nn.LayerNorm([channels]),
+            # nn.LayerNorm([channels]),
             nn.Linear(channels, channels),
             nn.GELU(),
             nn.Linear(channels, channels),
@@ -54,10 +51,10 @@ class SelfAttention(nn.Module):
         """Overloads forward pass of nn.Module"""
         size = x.shape[-1]
         x = x.view(-1, self.channels, size * size).swapaxes(1, 2)
-        x_ln = self.ln(x)
-        attention_value, _ = self.mha(x_ln, x_ln, x_ln)
-        attention_value = attention_value + x
-        attention_value = self.ff_self(attention_value) + attention_value
+        # x_ln = self.ln(x)
+        # attention_value, _ = self.mha(x_ln, x_ln, x_ln)
+        # attention_value = attention_value + x
+        attention_value = self.ff_self(x) + x
         return attention_value.swapaxes(2, 1).view(-1, self.channels, size, size)
 
 
@@ -172,21 +169,21 @@ class UpStep(nn.Module):
         super().__init__()
 
         self.up = nn.Upsample(scale_factor=2, mode="bilinear", align_corners=True)
-        self.conv = nn.Sequential(
-            UNetConv(
+        self.conv1 = UNetConv(
                 in_channels=in_channels,
                 out_channels=in_channels,
                 latent_dim=emb_dim,
                 residual=True,
-            ),
-            UNetConv(
+            )
+        
+        self.conv2 = UNetConv(
                 in_channels=in_channels,
                 int_channels=in_channels // 2,
                 out_channels=out_channels,
                 latent_dim=emb_dim,
                 residual=True,
-            ),
-        )
+            )
+        
 
         self.emb_layer = nn.Sequential(
             nn.SiLU(),
@@ -199,7 +196,8 @@ class UpStep(nn.Module):
         """Overloads forward method of nn.Module"""
         x = self.up(x)
         x = torch.cat([res_x, x], dim=1)
-        x = self.conv(x, z, t)
+        x = self.conv1(x, z, t)
+        x = self.conv2(x,z,t)
         # emb = self.emb_layer(t)[:, :, None, None].repeat(1, 1, x.shape[-2], x.shape[-1])
         return x
 
@@ -230,11 +228,11 @@ class UNet(nn.Module):
         self.down3 = DownStep(in_channels=256, out_channels=512)
         self.sa3 = SelfAttention(channels=512)
 
-        self.up1 = UpStep(in_channels=1024, out_channels=256)
+        self.up1 = UpStep(in_channels=768, out_channels=256)
         self.sa4 = SelfAttention(channels=256)
-        self.up2 = UpStep(in_channels=512, out_channels=128)
+        self.up2 = UpStep(in_channels=384, out_channels=128)
         self.sa5 = SelfAttention(channels=128)
-        self.up3 = UpStep(in_channels=256, out_channels=64)
+        self.up3 = UpStep(in_channels=192, out_channels=64)
         self.sa6 = SelfAttention(channels=64)
         self.outc = nn.Conv2d(in_channels=64, out_channels=n_channels, kernel_size=1)
 
@@ -258,7 +256,7 @@ class UNet(nn.Module):
         t = t.unsqueeze(-1)
         t = self.pos_encoding(t, self.time_dim)
 
-        x1 = self.inc(x)
+        x1 = self.inc(x, t, z)
         x2 = self.down1(x1, t, z)
         x2 = self.sa1(x2)
         x3 = self.down2(x2, t, z)
