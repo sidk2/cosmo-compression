@@ -1,8 +1,5 @@
 """Implements a UNet
 
-Module TODOs:
-    - Implement layer masking and adaptive group normalization from SODA paper
-
 """
 
 import torch
@@ -38,10 +35,10 @@ class SelfAttention(nn.Module):
     def __init__(self, channels: int):
         super(SelfAttention, self).__init__()
         self.channels = channels
-        # self.mha = nn.MultiheadAttention(channels, 2, batch_first=True)
+        self.mha = nn.MultiheadAttention(channels, 2, batch_first=True)
         self.ln = nn.LayerNorm([channels])
         self.ff_self = nn.Sequential(
-            # nn.LayerNorm([channels]),
+            nn.LayerNorm([channels]),
             nn.Linear(channels, channels),
             nn.GELU(),
             nn.Linear(channels, channels),
@@ -51,11 +48,10 @@ class SelfAttention(nn.Module):
         """Overloads forward pass of nn.Module"""
         size = x.shape[-1]
         x = x.view(-1, self.channels, size * size).swapaxes(1, 2)
-        # x_ln = self.ln(x)
-        # attention_value, _ = self.mha(x_ln, x_ln, x_ln)
+        x, _ = self.mha(x, x, x)
         # attention_value = attention_value + x
-        attention_value = self.ff_self(x) + x
-        return attention_value.swapaxes(2, 1).view(-1, self.channels, size, size)
+        x = self.ff_self(x) + x
+        return x.swapaxes(2, 1).view(-1, self.channels, size, size)
 
 
 class UNetConv(nn.Module):
@@ -66,6 +62,7 @@ class UNetConv(nn.Module):
         in_channels: int,
         out_channels: int,
         latent_dim: int,
+        time_dim: int,
         int_channels: int | None = None,
         residual: bool = False,
     ):
@@ -85,19 +82,18 @@ class UNetConv(nn.Module):
 
         self.z_scale_proj_1 = nn.Linear(latent_dim, int_channels)
         self.z_bias_proj_1 = nn.Linear(latent_dim, int_channels)
-        self.t_scale_proj_1 = nn.Linear(latent_dim, int_channels)
-        self.t_bias_proj_1 = nn.Linear(latent_dim, int_channels)
+        self.t_scale_proj_1 = nn.Linear(time_dim, int_channels)
+        self.t_bias_proj_1 = nn.Linear(time_dim, int_channels)
 
         self.z_scale_proj_2 = nn.Linear(latent_dim, out_channels)
         self.z_bias_proj_2 = nn.Linear(latent_dim, out_channels)
-        self.t_scale_proj_2 = nn.Linear(latent_dim, out_channels)
-        self.t_bias_proj_2 = nn.Linear(latent_dim, out_channels)
+        self.t_scale_proj_2 = nn.Linear(time_dim, out_channels)
+        self.t_bias_proj_2 = nn.Linear(time_dim, out_channels)
 
     def forward(
         self, x: torch.Tensor, z: torch.Tensor, t: torch.Tensor
     ) -> torch.Tensor:
         """Overloads forward method of nn.Module"""
-
         # t is shape [batch_size]
         z_s1 = self.z_scale_proj_1(z)
         z_b1 = self.z_bias_proj_1(z)
@@ -127,7 +123,8 @@ class DownStep(nn.Module):
         in_channels: int,
         out_channels: int,
         int_channels: int | None = None,
-        emb_dim: int = 256,
+        latent_dim: int = 256,
+        time_dim: int = 256,
     ):
         super(
             DownStep,
@@ -139,40 +136,36 @@ class DownStep(nn.Module):
         self.conv1 = UNetConv(
             in_channels=in_channels,
             out_channels=int_channels,
-            latent_dim=emb_dim,
+            latent_dim=latent_dim,
+            time_dim = time_dim,
             residual=True,
         )
         self.conv2 = UNetConv(
             in_channels=int_channels,
             out_channels=out_channels,
-            latent_dim=emb_dim,
+            latent_dim=latent_dim,
+            time_dim=time_dim,
             residual=True,
         )
-
-        # self.emb_layer = nn.Sequential(
-        #     nn.SiLU(),
-        #     nn.Linear(emb_dim, out_channels),
-        # )
-
     def forward(
         self, x: torch.Tensor, z: torch.Tensor, t: torch.Tensor
     ) -> torch.Tensor:
         """Overloads forward method of nn.Module"""
-        # emb = self.emb_layer(t)[:, :, None, None].repeat(1, 1, x.shape[-2], x.shape[-1])
         return self.conv2(self.conv1(self.pooling(x), z, t), z, t)
 
 
 class UpStep(nn.Module):
     """Upsample latent and incorporate residual"""
 
-    def __init__(self, in_channels: int, out_channels: int, emb_dim: int = 256):
+    def __init__(self, in_channels: int, out_channels: int, latent_dim: int = 256, time_dim: int = 256):
         super().__init__()
 
         self.up = nn.Upsample(scale_factor=2, mode="bilinear", align_corners=True)
         self.conv1 = UNetConv(
                 in_channels=in_channels,
                 out_channels=in_channels,
-                latent_dim=emb_dim,
+                latent_dim=latent_dim,
+                time_dim=time_dim,
                 residual=True,
             )
         
@@ -180,16 +173,11 @@ class UpStep(nn.Module):
                 in_channels=in_channels,
                 int_channels=in_channels // 2,
                 out_channels=out_channels,
-                latent_dim=emb_dim,
+                latent_dim=latent_dim,
+                time_dim=time_dim,
                 residual=True,
             )
         
-
-        self.emb_layer = nn.Sequential(
-            nn.SiLU(),
-            nn.Linear(emb_dim, out_channels),
-        )
-
     def forward(
         self, x: torch.Tensor, res_x: torch.Tensor, z: torch.Tensor, t: torch.Tensor
     ) -> torch.Tensor:
@@ -198,7 +186,6 @@ class UpStep(nn.Module):
         x = torch.cat([res_x, x], dim=1)
         x = self.conv1(x, z, t)
         x = self.conv2(x,z,t)
-        # emb = self.emb_layer(t)[:, :, None, None].repeat(1, 1, x.shape[-2], x.shape[-1])
         return x
 
 
@@ -208,10 +195,11 @@ class UNet(nn.Module):
     def __init__(
         self,
         n_channels: int,
-        time_dim: int = 256,
         latent_dim: int = 256,
+        time_dim: int = 256
     ):
         super(UNet, self).__init__()
+        self.latent_dim = latent_dim
         self.time_dim = time_dim
         self.n_channels = n_channels
 
@@ -219,21 +207,24 @@ class UNet(nn.Module):
             in_channels=n_channels,
             out_channels=64,
             latent_dim=latent_dim,
+            time_dim = time_dim,
             residual=True,
         )
-        self.down1 = DownStep(in_channels=64, out_channels=128)
-        self.sa1 = SelfAttention(channels=128)
-        self.down2 = DownStep(in_channels=128, out_channels=256)
+        self.down1 = DownStep(in_channels=64, out_channels=128, latent_dim=latent_dim, time_dim=time_dim)
+        # self.sa1 = SelfAttention(channels=128)
+        self.down2 = DownStep(in_channels=128, out_channels=256, latent_dim=latent_dim, time_dim=time_dim)
         self.sa2 = SelfAttention(channels=256)
-        self.down3 = DownStep(in_channels=256, out_channels=512)
+        self.down3 = DownStep(in_channels=256, out_channels=512, latent_dim=latent_dim, time_dim=time_dim)
         self.sa3 = SelfAttention(channels=512)
+        self.down4 = DownStep(in_channels=512, out_channels=512, latent_dim=latent_dim, time_dim=time_dim)
 
-        self.up1 = UpStep(in_channels=768, out_channels=256)
+        self.up0 = UpStep(in_channels=1024, out_channels=256, latent_dim=latent_dim, time_dim=time_dim)
+        self.up1 = UpStep(in_channels=768, out_channels=256, latent_dim=latent_dim, time_dim=time_dim)
         self.sa4 = SelfAttention(channels=256)
-        self.up2 = UpStep(in_channels=384, out_channels=128)
+        self.up2 = UpStep(in_channels=384, out_channels=128, latent_dim=latent_dim, time_dim=time_dim)
         self.sa5 = SelfAttention(channels=128)
-        self.up3 = UpStep(in_channels=192, out_channels=64)
-        self.sa6 = SelfAttention(channels=64)
+        self.up3 = UpStep(in_channels=192, out_channels=64, latent_dim=latent_dim, time_dim=time_dim)
+        # self.sa6 = SelfAttention(channels=64)
         self.outc = nn.Conv2d(in_channels=64, out_channels=n_channels, kernel_size=1)
 
     def pos_encoding(self, t: int, channels: int) -> torch.Tensor:
@@ -252,23 +243,32 @@ class UNet(nn.Module):
     def forward(
         self, x: torch.Tensor, t: torch.Tensor, z: torch.Tensor | None = None
     ) -> torch.Tensor:
-        """Overloads forward method of nn.Module"""
+        """Overloads forward method of nn.Module
+            t is the full timestep embedding, with dimension time_dim
+            z is the full latent, which will be split into latent_dim chunks
+        """
+        
+        # There are 9 up/down sampling layers, so z must be latent_dim*9 elements long
+        latent_dim = self.latent_dim
+        assert z.shape[-1] == self.latent_dim*9
+        
         t = t.unsqueeze(-1)
         t = self.pos_encoding(t, self.time_dim)
-
-        x1 = self.inc(x, t, z)
-        x2 = self.down1(x1, t, z)
-        x2 = self.sa1(x2)
-        x3 = self.down2(x2, t, z)
+        x1 = self.inc(x, z[:, :latent_dim], t)
+        x2 = self.down1(x1, z[:, latent_dim:2*latent_dim], t)
+        # x2 = self.sa1(x2)
+        x3 = self.down2(x2, z[:, 2*latent_dim:3*latent_dim], t)
         x3 = self.sa2(x3)
-        x4 = self.down3(x3, t, z)
+        x4 = self.down3(x3, z[:, 3*latent_dim:4*latent_dim], t)
         x4 = self.sa3(x4)
-
-        x = self.up1(x4, x3, t, z)
+        x5 = self.down4(x4, z[:, 4*latent_dim:5*latent_dim], t)
+        
+        x = self.up0(x5, x4, z[:, 5*latent_dim:6*latent_dim], t)
+        x = self.up1(x4, x3, z[:, 6*latent_dim:7*latent_dim], t)
         x = self.sa4(x)
-        x = self.up2(x, x2, t, z)
-        x = self.sa5(x)
-        x = self.up3(x, x1, t, z)
-        x = self.sa6(x)
+        x = self.up2(x, x2, z[:, 7*latent_dim:8*latent_dim], t)
+        # x = self.sa5(x)
+        x = self.up3(x, x1, z[:, 8*latent_dim:], t)
+        # x = self.sa6(x)
         output = self.outc(x)
         return output

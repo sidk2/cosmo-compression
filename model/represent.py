@@ -91,14 +91,16 @@ class Represent(LightningModule):
         self.latent_dim = latent_dim
         self.unconditional = unconditional
         self.log_wandb = log_wandb
-        self.encoder = self.initialize_encoder(encoder, latent_dim, 1)
-        velocity_model = self.initialize_velocity() 
+        self.encoder = self.initialize_encoder(encoder, latent_dim*9, 1)
+        velocity_model = self.initialize_velocity(latent_dim=latent_dim) 
         self.decoder = FlowMatching(velocity_model)
         self.validation_step_outputs = []
 
-    def initialize_velocity(self, ):
+    def initialize_velocity(self, latent_dim):
         return UNet(
-            n_channels = 1
+            n_channels = 1,
+            time_dim = 256,
+            latent_dim = latent_dim,
         )
 
     def initialize_encoder(self, encoder_type, latent_dim, in_channels):

@@ -9,7 +9,7 @@ from lightning.pytorch import seed_everything
 
 import wandb
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "4" 
+
 
 from .data.data import CAMELS
 from .model.represent import Represent 
@@ -26,7 +26,7 @@ parser.add_argument(
 )
 parser.add_argument(
     "--run_name",
-    default="flow-compression",
+    default="noada-compression",
     type=str,
     help="weights and biases run name",
     required=False,
@@ -184,6 +184,7 @@ def train(args,):
         log_wandb=args.use_wandb,
         unconditional=args.unconditional,
     )
+    # fm = Represent.load_from_checkpoint("results/noada-compression/step=step=6000-val_loss=0.479.ckpt").cuda()
 
     trainer = Trainer(
         max_steps=args.max_steps, 
@@ -192,13 +193,13 @@ def train(args,):
         log_every_n_steps=50,
         accumulate_grad_batches=args.accumulate_gradients if args.accumulate_gradients is not None else 1,
         callbacks=[checkpoint_callback,lr_monitor,],
-        devices=1,
+        devices=2,
         check_val_every_n_epoch=None,  
         val_check_interval=args.eval_every,
         max_epochs=50,
         profiler="simple" if args.profile else None,
-        accelerator="gpu"
-        #strategy="ddp",
+        accelerator="gpu",
+        strategy="ddp_find_unused_parameters_true",
     )
     trainer.fit(model=fm, train_dataloaders=train_loader, val_dataloaders=val_loader)
 
