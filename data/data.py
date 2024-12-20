@@ -85,7 +85,7 @@ class CAMELS(VisionDataset):
         self, 
         suite, 
         dataset,
-        parameters= ['Omega_m', 'sigma_8', 'A_SN1', 'A_SN2', 'A_AGN1', 'A_AGN2',],
+        parameters= ['Omega_m', 'sigma_8', 'A_SN1', 'A_SN2', 'A_AGN1', 'A_AGN2','Omega_b'],
     ):
         column_names = ['Omega_m', 'sigma_8', 'A_SN1', 'A_SN2', 'A_AGN1', 'A_AGN2','Omega_b']
         params = pd.read_csv(

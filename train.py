@@ -10,12 +10,12 @@ from lightning.pytorch import seed_everything
 import wandb
 import os
 
-
-from .data.data import CAMELS
-from .model.represent import Represent 
+from cosmo_compression.data.data import CAMELS
+from cosmo_compression.model.represent import Represent 
 
 import torch 
 torch.cuda.empty_cache()
+torch.set_float32_matmul_precision('medium')
 
 parser = ArgumentParser()
 parser.add_argument(
@@ -26,7 +26,7 @@ parser.add_argument(
 )
 parser.add_argument(
     "--run_name",
-    default="noada-compression",
+    default="identity-comp",
     type=str,
     help="weights and biases run name",
     required=False,
@@ -102,7 +102,7 @@ parser.add_argument(
 )
 parser.add_argument(
     "--eval_every",
-    default=50,
+    default=100,
     type=int,
     required=False,
     help="frequency of evaluating model, 0 to disable during training",
@@ -117,7 +117,7 @@ parser.add_argument(
 
 parser.add_argument(
     "--latent_dim",
-    default=256,
+    default=256*256,
     type=int,
     required=False,
 )
@@ -142,7 +142,7 @@ def train(args,):
         print(f"Running without Weights and Biases logging.")
 
     train_data = CAMELS(
-        idx_list=range(14_500),
+        idx_list=range(14_600),
         map_type='Mcdm',
         parameters=['Omega_m', 'sigma_8',],
     )
@@ -154,7 +154,7 @@ def train(args,):
         pin_memory=True,
     )
     val_data = CAMELS(
-        idx_list=range(14_500, 15_000),
+        idx_list=range(14_600, 15_000),
         map_type='Mcdm',
         parameters=['Omega_m', 'sigma_8',],
     )
@@ -184,7 +184,7 @@ def train(args,):
         log_wandb=args.use_wandb,
         unconditional=args.unconditional,
     )
-    # fm = Represent.load_from_checkpoint("results/noada-compression/step=step=6000-val_loss=0.479.ckpt").cuda()
+    # fm = Represent.load_from_checkpoint("soda-comp/last-v4.ckpt").cuda()
 
     trainer = Trainer(
         max_steps=args.max_steps, 
@@ -193,13 +193,13 @@ def train(args,):
         log_every_n_steps=50,
         accumulate_grad_batches=args.accumulate_gradients if args.accumulate_gradients is not None else 1,
         callbacks=[checkpoint_callback,lr_monitor,],
-        devices=2,
+        devices=4,
         check_val_every_n_epoch=None,  
         val_check_interval=args.eval_every,
-        max_epochs=50,
+        max_epochs=100,
         profiler="simple" if args.profile else None,
         accelerator="gpu",
-        strategy="ddp_find_unused_parameters_true",
+        strategy='ddp_find_unused_parameters_true',
     )
     trainer.fit(model=fm, train_dataloaders=train_loader, val_dataloaders=val_loader)
 

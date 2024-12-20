@@ -9,22 +9,35 @@ from lightning import LightningModule
 
 from typing import Optional, Tuple
 import numpy as np
-from .flow_matching import FlowMatching
+from cosmo_compression.model.flow_matching import FlowMatching
 
 import wandb
 import matplotlib.pyplot as plt
 from PIL import Image
 import io
-#import Pk_library as PKL
+import Pk_library as PKL
 from sklearn.manifold import TSNE
 
-from .unet import UNet
-from .resnet import ResNet
+import math
 
+from cosmo_compression.model.unet import UNet
+from cosmo_compression.model.resnet import ResNet
 
-# plt.style.use("science")
+class FlattenAndPadToMultipleOfNine(nn.Module):
+    def __init__(self):
+        super(FlattenAndPadToMultipleOfNine, self).__init__()
 
-
+    def forward(self, x):
+        B, C, H, W = x.shape
+        # Flatten the spatial dimensions
+        flattened = x.view(B, C, -1)  # Shape: (B, C, H*W)
+        # Calculate the padding size to make the last dimension a multiple of 9
+        current_size = flattened.shape[-1]
+        target_size = math.ceil(current_size / 9) * 9
+        padding_size = target_size - current_size
+        # Pad the tensor along the last dimension
+        padded = torch.nn.functional.pad(flattened, (0, padding_size)).squeeze()  # Shape: (B, C, target_size)
+        return padded
 
 def compute_pk(
     mesh: np.array,
@@ -85,15 +98,16 @@ class Represent(LightningModule):
         n_sampling_steps: int = 50,
         unconditional: bool = False,
         log_wandb: bool = True,
+        reverse: bool = False,
     ):
         super().__init__()
         self.save_hyperparameters()
         self.latent_dim = latent_dim
         self.unconditional = unconditional
         self.log_wandb = log_wandb
-        self.encoder = self.initialize_encoder(encoder, latent_dim*9, 1)
+        self.encoder = self.initialize_encoder(latent_dim=latent_dim*9, in_channels=1)
         velocity_model = self.initialize_velocity(latent_dim=latent_dim) 
-        self.decoder = FlowMatching(velocity_model)
+        self.decoder = FlowMatching(velocity_model, reverse=reverse)
         self.validation_step_outputs = []
 
     def initialize_velocity(self, latent_dim):
@@ -103,13 +117,15 @@ class Represent(LightningModule):
             latent_dim = latent_dim,
         )
 
-    def initialize_encoder(self, encoder_type, latent_dim, in_channels):
-        encoder = timm.create_model(
-                'resnet18', 
-                pretrained=False, 
-                in_chans=in_channels, 
-                num_classes=latent_dim,
-            )
+    def initialize_encoder(self, latent_dim, in_channels):
+        # encoder = timm.create_model(
+        #         'resnet18', 
+        #         pretrained=False, 
+        #         in_chans=in_channels, 
+        #         num_classes=latent_dim,
+        #     )
+        # encoder = FlattenAndPadToMultipleOfNine()
+        encoder = ResNet(in_channels = in_channels, latent_dim=latent_dim)
         return encoder
 
 
@@ -117,8 +133,6 @@ class Represent(LightningModule):
         cosmology, y = batch
         # Train representation
         h = self.encoder(y) if not self.unconditional else None
-        # if h is not None:
-        #     h = self.h_embedding(h)
         x0 = torch.randn_like(y) 
         decoder_loss = self.decoder.compute_loss(
             x0 = x0,
@@ -206,7 +220,7 @@ class Represent(LightningModule):
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.hparams.learning_rate)
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=8)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=1, T_mult=3)
         return {
             "optimizer": optimizer,
             "lr_scheduler": scheduler,

@@ -251,7 +251,7 @@ class UNet(nn.Module):
         # There are 9 up/down sampling layers, so z must be latent_dim*9 elements long
         latent_dim = self.latent_dim
         assert z.shape[-1] == self.latent_dim*9
-        
+
         t = t.unsqueeze(-1)
         t = self.pos_encoding(t, self.time_dim)
         x1 = self.inc(x, z[:, :latent_dim], t)

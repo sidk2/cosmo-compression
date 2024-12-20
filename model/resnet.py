@@ -47,7 +47,7 @@ class ResnetBlock(nn.Module):
         logits = self.convs[0](x)
         logits = self.batch_norms[0](logits)
         logits = F.relu(logits)
-        logits = self.convs[1](x)
+        logits = self.convs[1](logits)
         logits = self.batch_norms[1](logits)
         # logits += self.downsample(x)
         logits = F.relu(logits)
@@ -78,29 +78,33 @@ class ResNet(nn.Module):
         )
         self.resnet_layers = nn.ModuleList(
             [
-                self._make_layer(64, 2, stride=1),
-                self._make_layer(64, 2, stride=1),
-                self._make_layer(128, 2, stride=1),
-                self._make_layer(256, 2, stride=1),
-                self._make_layer(512, 2, stride=1),
+                self._make_layer(in_channels=64, out_channels=64, num_blocks=1, stride=1),
+                self._make_layer(in_channels=64, out_channels=64, num_blocks=1, stride=1),
+                self._make_layer(in_channels=64, out_channels=128, num_blocks=1, stride=2),
+                self._make_layer(in_channels=128, out_channels=256, num_blocks=1, stride=2),
+                self._make_layer(in_channels=256, out_channels=512, num_blocks=1, stride=2),
             ]
         )
         # Downsampled to 64x64
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(512, latent_dim)
 
-    def _make_layer(self, out_channels: int, num_blocks: int, stride: int) -> nn.Sequential:
+    def _make_layer(self, in_channels: int, out_channels: int, num_blocks: int, stride: int) -> nn.Sequential:
         strides = [stride] + [1] * (num_blocks - 1)
         layers = []
         for stride in strides:
-            layers.append(ResnetBlock(self.in_channels, out_channels, stride))
-            self.in_channels = out_channels
+            layers.append(ResnetBlock(in_channels, out_channels, stride))
         return nn.Sequential(*layers)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Overloads forward method of nn.Module"""
         x = self.in_layer(x)
-        for layer in self.resnet_layers:
+        for i, layer in enumerate(self.resnet_layers):
+            # try:
+            #     x = layer(x)
+            # except RuntimeError:
+            #     print(f"Error in layer {i}")
+            #     exit()
             x = layer(x)
-        x = self.avgpool(x)
+        x = torch.squeeze(self.avgpool(x))
         return self.fc(x)

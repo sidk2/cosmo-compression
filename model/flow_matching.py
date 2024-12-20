@@ -3,21 +3,23 @@ from torch import nn
 from torchdyn.core import NeuralODE
 
 class ConditionedVelocityModel(nn.Module):
-    def __init__(self, velocity_model, h,):
+    def __init__(self, velocity_model, h, reverse: bool = False):
         super(ConditionedVelocityModel, self).__init__()
+        self.reverse = reverse
         self.velocity_model = velocity_model
         self.h = h
 
     def forward(self, t, x, h=None, *args, **kwargs):
         if not h:
             h = self.h
-        return self.velocity_model(x, t=t, z=h)
+        return -1*self.velocity_model(x, t=t, z=h) if self.reverse else self.velocity_model(x, t=t, z=h)
 
 class FlowMatching(nn.Module):
-    def __init__(self, velocity_model, sigma=0.,):
+    def __init__(self, velocity_model, sigma=0., reverse: bool = False):
         super().__init__()
         self.velocity_model = velocity_model
         self.sigma = sigma
+        self.reverse = reverse
 
     def get_mu_t(self, x0, x1, t):
         return t * x1 + (1 - t) * x0
@@ -57,11 +59,12 @@ class FlowMatching(nn.Module):
         self,
         x0,
         h=None,
-        n_sampling_steps=10,
+        n_sampling_steps=100,
     ):
         conditional_velocity_model = ConditionedVelocityModel(
             velocity_model=self.velocity_model,
             h=h,
+            reverse=self.reverse
         )
         node = NeuralODE(
             conditional_velocity_model,
