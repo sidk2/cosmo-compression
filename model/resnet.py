@@ -100,11 +100,6 @@ class ResNet(nn.Module):
         """Overloads forward method of nn.Module"""
         x = self.in_layer(x)
         for i, layer in enumerate(self.resnet_layers):
-            # try:
-            #     x = layer(x)
-            # except RuntimeError:
-            #     print(f"Error in layer {i}")
-            #     exit()
             x = layer(x)
         x = torch.squeeze(self.avgpool(x))
         return self.fc(x)

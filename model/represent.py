@@ -1,27 +1,22 @@
-import torch
-from torch import nn
-import timm
-from diffusers import UNet2DModel
-from diffusers.models.embeddings import TimestepEmbedding
-
-from lightning.pytorch.utilities import rank_zero_only
-from lightning import LightningModule
-
-from typing import Optional, Tuple
-import numpy as np
-from cosmo_compression.model.flow_matching import FlowMatching
-
-import wandb
-import matplotlib.pyplot as plt
-from PIL import Image
+from typing import Optional, Tuple, Dict, Any
+import math
 import io
+
+from lightning.pytorch import utilities
+from lightning import LightningModule
+import matplotlib.pyplot as plt
+import numpy as np
+from PIL import Image
 import Pk_library as PKL
 from sklearn.manifold import TSNE
+import torch
+from torch import nn
+import wandb
 
-import math
+from cosmo_compression.model import flow_matching as fm
+from cosmo_compression.model import unet
+from cosmo_compression.model import resnet
 
-from cosmo_compression.model.unet import UNet
-from cosmo_compression.model.resnet import ResNet
 
 class FlattenAndPadToMultipleOfNine(nn.Module):
     def __init__(self):
@@ -36,8 +31,11 @@ class FlattenAndPadToMultipleOfNine(nn.Module):
         target_size = math.ceil(current_size / 9) * 9
         padding_size = target_size - current_size
         # Pad the tensor along the last dimension
-        padded = torch.nn.functional.pad(flattened, (0, padding_size)).squeeze()  # Shape: (B, C, target_size)
+        padded = torch.nn.functional.pad(
+            flattened, (0, padding_size)
+        ).squeeze()  # Shape: (B, C, target_size)
         return padded
+
 
 def compute_pk(
     mesh: np.array,
@@ -67,9 +65,13 @@ def compute_pk(
         pk = PKL.Pk(mesh, box_size, MAS=MAS)
         return pk.k3D, pk.Pk[:, 0]
 
-def get_2d_embeddings(embeddings,): 
+
+def get_2d_embeddings(
+    embeddings,
+):
     tsne = TSNE(n_components=2, random_state=42)
-    return tsne.fit_transform(embeddings)  
+    return tsne.fit_transform(embeddings)
+
 
 def log_matplotlib_figure(figure_label: str):
     """log a matplotlib figure to wandb, avoiding plotly
@@ -89,13 +91,11 @@ def log_matplotlib_figure(figure_label: str):
     # Log the plot to wandb
     wandb.log({f"{figure_label}": wandb.Image(image)})
 
+
 class Represent(LightningModule):
     def __init__(
         self,
-        encoder: str = 'resnet18',
         latent_dim: int = 32,
-        learning_rate: float = 3.e-4,
-        n_sampling_steps: int = 50,
         unconditional: bool = False,
         log_wandb: bool = True,
         reverse: bool = False,
@@ -105,53 +105,52 @@ class Represent(LightningModule):
         self.latent_dim = latent_dim
         self.unconditional = unconditional
         self.log_wandb = log_wandb
-        self.encoder = self.initialize_encoder(latent_dim=latent_dim*9, in_channels=1)
-        velocity_model = self.initialize_velocity(latent_dim=latent_dim) 
-        self.decoder = FlowMatching(velocity_model, reverse=reverse)
+        self.encoder = self.initialize_encoder(latent_dim=latent_dim * 9, in_channels=1)
+        velocity_model = self.initialize_velocity(latent_dim=latent_dim)
+        self.decoder = fm.FlowMatching(velocity_model, reverse=reverse)
         self.validation_step_outputs = []
 
-    def initialize_velocity(self, latent_dim):
-        return UNet(
-            n_channels = 1,
-            time_dim = 256,
-            latent_dim = latent_dim,
+    def initialize_velocity(self, latent_dim: int) -> nn.Module:
+        return unet.UNet(
+            n_channels=1,
+            time_dim=256,
+            latent_dim=latent_dim,
         )
 
-    def initialize_encoder(self, latent_dim, in_channels):
-        # encoder = timm.create_model(
-        #         'resnet18', 
-        #         pretrained=False, 
-        #         in_chans=in_channels, 
-        #         num_classes=latent_dim,
-        #     )
-        # encoder = FlattenAndPadToMultipleOfNine()
-        encoder = ResNet(in_channels = in_channels, latent_dim=latent_dim)
-        return encoder
+    def initialize_encoder(self, latent_dim: int, in_channels: int) -> nn.Module:
+        return resnet.ResNet(in_channels=in_channels, latent_dim=latent_dim)
 
-
-    def get_loss(self, batch, ):
+    def get_loss(
+        self,
+        batch: Tuple[np.array, np.array],
+    ) -> torch.Tensor:
         cosmology, y = batch
         # Train representation
         h = self.encoder(y) if not self.unconditional else None
-        x0 = torch.randn_like(y) 
+        x0 = torch.randn_like(y)
         decoder_loss = self.decoder.compute_loss(
-            x0 = x0,
-            x1 =y,
-            h = h,
+            x0=x0,
+            x1=y,
+            h=h,
         )
-        return decoder_loss 
+        return decoder_loss
 
-           
-    def training_step(self, batch, batch_idx, ):
+    def training_step(
+        self,
+        batch: Tuple[np.array, np.array],
+    ) -> torch.Tensor | int:
         loss = self.get_loss(batch=batch)
         self.log("train_loss", loss, prog_bar=True, sync_dist=True)
         return loss
 
-    def validation_step(self, batch, batch_idx):
+    def validation_step(
+        self,
+        batch: Tuple[np.array, np.array],
+    ) -> None:
         loss = self.get_loss(batch=batch)
         self.validation_step_outputs.append({"val_loss": loss, "batch": batch})
 
-    def on_validation_epoch_end(self):
+    def on_validation_epoch_end(self) -> None:
         mean_val_loss = torch.stack(
             [output["val_loss"] for output in self.validation_step_outputs]
         ).mean()
@@ -160,13 +159,17 @@ class Represent(LightningModule):
         self._log_figures(batch, log=self.log_wandb)
         self.validation_step_outputs.clear()
 
-    @rank_zero_only
-    def _log_figures(self, batch, log=True,):
+    @utilities.rank_zero_only
+    def _log_figures(
+        self,
+        batch: Tuple[np.array, np.array],
+        log=True,
+    ) -> None:
         cosmology, y = batch
         h = self.encoder(y) if not self.unconditional else None
         # if h is not None:
         #     h = self.h_embedding(h)
-        x0 = torch.randn_like(y) 
+        x0 = torch.randn_like(y)
         pred = self.decoder.predict(
             x0,
             h=h,
@@ -174,56 +177,23 @@ class Represent(LightningModule):
         )
         if log:
             print("Logging")
-            # plot field reconstruction 
-            fig, ax = plt.subplots(1,2, figsize=(8,4 ))
-            ax[0].imshow(y[0,0].detach().cpu().numpy(), cmap='viridis')    
-            ax[1].imshow(pred[0,0].detach().cpu().numpy(), cmap='viridis')    
-            ax[0].set_title('x')
-            ax[1].set_title('Reconstructed x')
+            # plot field reconstruction
+            fig, ax = plt.subplots(1, 2, figsize=(8, 4))
+            ax[0].imshow(y[0, 0].detach().cpu().numpy(), cmap="viridis")
+            ax[1].imshow(pred[0, 0].detach().cpu().numpy(), cmap="viridis")
+            ax[0].set_title("x")
+            ax[1].set_title("Reconstructed x")
             plt.savefig("field_construction.png")
             log_matplotlib_figure("field_reconstruction")
             plt.close()
 
-            # add Pk reconstruction
-            #TODO: might need to undo standarization
-            # k, true_power = compute_pk(y.cpu().numpy(), MAS=None, box_size=25.,)
-            # k, pred_power = compute_pk(pred.cpu().numpy(), MAS=None,box_size=25.,)
-            # fig, axs = plt.subplots(2, 1, figsize=(8, 6), gridspec_kw={'height_ratios': [3, 1], 'hspace': 0.05}, sharex=True)
-            # k_nyquist = np.pi / (25./ 256)
-            # axs[0].loglog(k[k < k_nyquist], true_power[k < k_nyquist], label="True")
-            # axs[0].loglog(k[k < k_nyquist], pred_power[k < k_nyquist], label="Reconstructed")
-            # axs[1].set_ylim(0.8,1.2)
-            # axs[0].legend()
-            # axs[1].semilogx(k[k < k_nyquist], np.sqrt(pred_power[k < k_nyquist] / true_power[k < k_nyquist]))
-            # axs[1].set_xlabel('k')
-            # log_matplotlib_figure("pks")
-            # plt.close()
-
-            # low_dim_h = get_2d_embeddings(h.detach().cpu().numpy())
-
-            # fig, ax = plt.subplots(ncols=2, figsize=(16,6))
-            # for p in range(2):
-
-            #     _ = ax[0].scatter(low_dim_h[:, 0], low_dim_h[:, 1], c=cosmology[:,0], cmap='viridis', s=10)
-            #     plt.clorbar()
-            #     _ = ax[1].scatter(low_dim_h[:, 0], low_dim_h[:, 1], c=cosmology[:,1], cmap='viridis', s=10)
-            #     plt.clorbar()
-            #     fig.suptitle('2D t-SNE Representation of Embeddings')
-            #     for axis in ax:
-            #         axis.set_xlabel('t-SNE Dimension 1')
-            #         axis.set_ylabel('t-SNE Dimension 2')
-
-            
-            #log_matplotlib_figure("embeddings")
-            #plt.close()
-
-
-    def configure_optimizers(self):
+    def configure_optimizers(self) -> Dict[str, Any]:
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.hparams.learning_rate)
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=1, T_mult=3)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+            optimizer, T_0=1, T_mult=3
+        )
         return {
             "optimizer": optimizer,
             "lr_scheduler": scheduler,
             "monitor": "val_loss",
         }
-
