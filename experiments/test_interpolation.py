@@ -1,14 +1,11 @@
-from torch.utils.data import DataLoader
+import os
 
 import Pk_library as PKL
-import time
-import torch
-import os
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.manifold import TSNE
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "5" 
+import torch
+from torch.utils.data import DataLoader
 
 from cosmo_compression.data.data import CAMELS
 from cosmo_compression.model.represent import Represent 
@@ -19,6 +16,7 @@ data = CAMELS(
         dataset='1P',
         parameters=['Omega_m', 'sigma_8', 'A_SN1', 'A_SN2', 'A_AGN1', 'A_AGN2','Omega_b'],
     )
+
 loader = DataLoader(
     data,
     batch_size=1,

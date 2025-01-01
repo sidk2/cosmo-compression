@@ -10,6 +10,8 @@ from lightning.pytorch import seed_everything
 import wandb
 import os
 
+os.environ["CUDA_VISIBLE_DEVICES"] = "4, 5" 
+
 from cosmo_compression.data.data import CAMELS
 from cosmo_compression.model.represent import Represent 
 
@@ -107,17 +109,10 @@ parser.add_argument(
     required=False,
     help="frequency of evaluating model, 0 to disable during training",
 )
-# Architecture 
-parser.add_argument(
-    "--encoder",
-    default='resnet18',
-    type=str,
-    required=False,
-)
 
 parser.add_argument(
     "--latent_dim",
-    default=256*256,
+    default=256,
     type=int,
     required=False,
 )
@@ -179,7 +174,6 @@ def train(args,):
     lr_monitor = LearningRateMonitor(logging_interval='step')
     
     fm = Represent(
-        encoder=args.encoder,
         latent_dim=args.latent_dim,
         log_wandb=args.use_wandb,
         unconditional=args.unconditional,
@@ -193,7 +187,7 @@ def train(args,):
         log_every_n_steps=50,
         accumulate_grad_batches=args.accumulate_gradients if args.accumulate_gradients is not None else 1,
         callbacks=[checkpoint_callback,lr_monitor,],
-        devices=4,
+        devices=2,
         check_val_every_n_epoch=None,  
         val_check_interval=args.eval_every,
         max_epochs=100,

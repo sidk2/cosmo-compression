@@ -44,33 +44,31 @@ def lerp(v1, v2, t):
     return (1 - t) * v1 + t * v2
 
 h_s = []
-num_samples = 20
-averaging_steps = 20
+num_samples = 200
 for t in torch.linspace(0, 1, num_samples):
     h_s.append(lerp(gts[0][2].cpu(), gts[-1][2].cpu(), t))
 
 Pk_test = np.zeros((num_samples, 181))
 x0 = torch.randn((1,1,256,256)).cuda() 
-for t in range(averaging_steps):
-    for i, latent in enumerate(h_s):
-        print(t, i)
-        pred = fm.decoder.predict(
-            x0.cuda(),
-            h=latent.cuda(),
-            n_sampling_steps=fm.hparams.n_sampling_steps,
-        )
-        
-        # Convert tensors to numpy arrays for processing
-        pred = pred.cpu().numpy()[0, 0, :, :]
-                
-        # Compute the power spectrum for the prediction
-        delta_fields_pred = pred / np.mean(pred) - 1
-        Pk2D = PKL.Pk_plane(delta_fields_pred, 25.0, 'None', 1, verbose=False)
-        k_pred = Pk2D.k
-        Pk_pred = Pk2D.Pk
-        Pk_test[i, :] += Pk_pred
 
-Pk_test = Pk_test / averaging_steps
+for i, latent in enumerate(h_s):
+    print(i)
+    pred = fm.decoder.predict(
+        x0.cuda(),
+        h=latent.cuda(),
+        n_sampling_steps=100,
+    )
+    
+    # Convert tensors to numpy arrays for processing
+    pred = pred.cpu().numpy()[0, 0, :, :]
+            
+    # Compute the power spectrum for the prediction
+    delta_fields_pred = pred / np.mean(pred) - 1
+    Pk2D = PKL.Pk_plane(delta_fields_pred, 25.0, 'None', 1, verbose=False)
+    k_pred = Pk2D.k
+    Pk_pred = Pk2D.Pk
+    Pk_test[i, :] += Pk_pred
+
 fig, ax = plt.subplots()
 
 ax.set_xscale("log")

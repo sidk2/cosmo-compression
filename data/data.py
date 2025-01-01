@@ -60,7 +60,7 @@ class CAMELS(VisionDataset):
         suite="Astrid",  # 'IllustrisTNG', 'SIMBA', 'EAGLE', 'Magneticum'],
         resolution: int = 256,
         original_resolution: int = 256,
-        idx_list: Optional[List[int]] = None,
+        idx_list: List[int] | None = None,
         dataset: str = "LH",
         map_type: str = "Mcdm",
     ):
@@ -166,7 +166,7 @@ class CAMELS(VisionDataset):
     def __getitem__(
         self,
         index: int,
-    ) -> Tuple[np.array, np.array, np.array]:
+    ) -> Tuple[np.array, np.array]:
         """Get a sample from the dataset"""
         x, y = self.x[index], self.y[index]
         if self.transform is not None:

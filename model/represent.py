@@ -17,26 +17,6 @@ from cosmo_compression.model import flow_matching as fm
 from cosmo_compression.model import unet
 from cosmo_compression.model import resnet
 
-
-class FlattenAndPadToMultipleOfNine(nn.Module):
-    def __init__(self):
-        super(FlattenAndPadToMultipleOfNine, self).__init__()
-
-    def forward(self, x):
-        B, C, H, W = x.shape
-        # Flatten the spatial dimensions
-        flattened = x.view(B, C, -1)  # Shape: (B, C, H*W)
-        # Calculate the padding size to make the last dimension a multiple of 9
-        current_size = flattened.shape[-1]
-        target_size = math.ceil(current_size / 9) * 9
-        padding_size = target_size - current_size
-        # Pad the tensor along the last dimension
-        padded = torch.nn.functional.pad(
-            flattened, (0, padding_size)
-        ).squeeze()  # Shape: (B, C, target_size)
-        return padded
-
-
 def compute_pk(
     mesh: np.array,
     mesh_2: Optional[np.array] = None,
@@ -173,7 +153,7 @@ class Represent(LightningModule):
         pred = self.decoder.predict(
             x0,
             h=h,
-            n_sampling_steps=self.hparams.n_sampling_steps,
+            n_sampling_steps=50,
         )
         if log:
             print("Logging")
@@ -188,7 +168,7 @@ class Represent(LightningModule):
             plt.close()
 
     def configure_optimizers(self) -> Dict[str, Any]:
-        optimizer = torch.optim.AdamW(self.parameters(), lr=self.hparams.learning_rate)
+        optimizer = torch.optim.AdamW(self.parameters(), lr=1e-4)
         scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
             optimizer, T_0=1, T_mult=3
         )

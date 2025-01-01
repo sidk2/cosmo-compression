@@ -1,9 +1,13 @@
+"""Implements conditional flow matching from Lipman et. al 23"""
+
 import torch
 from torch import nn
 from torchdyn.core import NeuralODE
 
 
 class ConditionedVelocityModel(nn.Module):
+    """Neural net for velocity field prediction"""
+
     def __init__(
         self,
         velocity_model: torch.nn.Module,
@@ -21,8 +25,9 @@ class ConditionedVelocityModel(nn.Module):
         x: torch.Tensor,
         h: torch.Tensor | None = None,
         *args,
-        **kwargs
+        **kwargs,
     ) -> torch.Tensor:
+        """Overloads forward method of nn.Module"""
         if not h:
             h = self.h
         return (
@@ -33,6 +38,8 @@ class ConditionedVelocityModel(nn.Module):
 
 
 class FlowMatching(nn.Module):
+    """Implements the flow matching loss"""
+
     def __init__(
         self,
         velocity_model: torch.nn.Module,
@@ -80,6 +87,7 @@ class FlowMatching(nn.Module):
         h: torch.Tensor | None = None,
         t: torch.Tensor | None | int = None,
     ) -> torch.Tensor:
+        """Given a noise field and a training sample, compute the flow matching loss."""
         if t is None:
             t = torch.rand(x0.shape[0], device=x0.device).type_as(x0)
 
@@ -99,6 +107,13 @@ class FlowMatching(nn.Module):
         h: torch.Tensor | None = None,
         n_sampling_steps: int = 100,
     ) -> torch.Tensor:
+        """Runs inference for flow matching model.
+
+        Args:
+            - x0: The noise field if model is not reversed, else the training sample
+            - h: The vector to be conditioned on
+            - n_sampling_steps: The number of steps to be sused when solving the flow matching ODE
+        """
         conditional_velocity_model = ConditionedVelocityModel(
             velocity_model=self.velocity_model, h=h, reverse=self.reverse
         )
