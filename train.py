@@ -10,7 +10,7 @@ from lightning.pytorch import seed_everything
 import wandb
 import os
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "4, 5" 
+os.environ["CUDA_VISIBLE_DEVICES"] = "2, 3, 4, 5" 
 
 from cosmo_compression.data.data import CAMELS
 from cosmo_compression.model.represent import Represent 
@@ -166,9 +166,9 @@ def train(args,):
     checkpoint_callback = ModelCheckpoint(
         dirpath=Path(args.output_dir) / f'{run_name}',
         filename='step={step}-{val_loss:.3f}',
-        save_top_k=3,
+        save_top_k=1,
         monitor='val_loss',
-        save_last=True,
+        save_last=False,
         every_n_train_steps=args.save_every,
     )
     lr_monitor = LearningRateMonitor(logging_interval='step')
@@ -184,10 +184,10 @@ def train(args,):
         max_steps=args.max_steps, 
         gradient_clip_val=1.0,
         logger=logger,
-        log_every_n_steps=50,
+        log_every_n_steps=100,
         accumulate_grad_batches=args.accumulate_gradients if args.accumulate_gradients is not None else 1,
         callbacks=[checkpoint_callback,lr_monitor,],
-        devices=2,
+        devices=4,
         check_val_every_n_epoch=None,  
         val_check_interval=args.eval_every,
         max_epochs=100,
