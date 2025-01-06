@@ -88,23 +88,6 @@ loader = torchdata.DataLoader(
 fm: lightning.LightningModule = represent.Represent.load_from_checkpoint("soda-comp/step=step=3500-val_loss=0.445.ckpt").to(device)
 fm.eval()
 
-fm.reverse = True
-fm.decoder.reverse = True
-
-cosmo, img = dataset[0]
-img = torch.tensor(img).unsqueeze(0).cuda()
-
-latent = fm.encoder(img).unsqueeze(0)
-
-x0 = fm.decoder.predict(
-    img.cuda(),
-    h=latent,
-    n_sampling_steps=1000,
-)
-
-fm.reverse = False
-fm.decoder.reverse = False
-
 param_est: nn.Module = inference.ParamMLP(input_dim=2304, hidden_widths=[1000,1000,256], output_dim=2).to(device)
 param_est.load_state_dict(torch.load(param_est_path))
 
@@ -145,7 +128,7 @@ starting_latent = gts[0][2]
 target_latent = gts[-1][2]
 
 # Linear interpolation: Create latent representations directly
-num_samples = 10
+num_samples = 20
 h_linear = [
     starting_latent + t * (target_latent - starting_latent)
     for t in np.linspace(0, 1, num_samples)
@@ -160,10 +143,11 @@ target_sigma_8 = gts[-1][0][1]
 print(f"Interpolation between {starting_omega_m, starting_sigma_8} and {target_omega_m, target_sigma_8}")
 
 # Learning rate for updates
-learning_rate = 0.001
+learning_rate = 0.01
 # Number of steps
 max_steps = 50000
 # Gradient-based interpolation (already implemented)
+x0 = torch.randn((1, 1,256,256), device='cuda')
 for step in tqdm.tqdm(range(max_steps)):
     output = param_est(h_grad[-1].cuda())[:, 0].item()
     grad = input_grad(model=param_est, input=h_grad[-1].cuda(), output_index=0, other_output_inds=[1])
@@ -205,82 +189,60 @@ for i, (latent_grad, latent_linear) in tqdm.tqdm(enumerate(zip(h_grad, h_linear)
     Pk_linear[i, :] = Pk2D_linear.Pk
     images_linear.append(pred_linear)
 
-# Plot animations for power spectra and images
-fig, axs = plt.subplots(2, 2, figsize=(12, 8))
+def create_combined_animation(title, Pk_data, images, filename):
+    fig, axs = plt.subplots(1, 2, figsize=(24, 12))
 
-# Setup for power spectrum plots
-for ax, title in zip(axs[0], ["Gradient-Based Interpolation", "Linear Interpolation"]):
-    ax.set_xscale("log")
-    ax.set_yscale("log")
-    ax.set_title(title)
-    ax.set_xlabel("Wavenumber $k\,[h/Mpc]$")
-    ax.set_ylabel("$P(k)\,[(Mpc/h)^2]$")
-    ax.plot(k_orig, Pk_orig, label='Start Point')
-    ax.plot(k_orig, Pk_fin, label='End Point')
-    ax.set_xlim(k_orig.min(), k_orig.max())
-    ax.set_ylim(min(Pk_grad.min(), Pk_linear.min()), max(Pk_grad.max(), Pk_linear.max()))
-    ax.legend()
+    # Power Spectrum Plot
+    power_ax = axs[0]
+    power_ax.set_xscale("log")
+    power_ax.set_yscale("log")
+    power_ax.set_title(f"{title}: Power Spectrum")
+    power_ax.set_xlabel("Wavenumber $k\,[h/Mpc]$")
+    power_ax.set_ylabel("$P(k)\,[(Mpc/h)^2]$")
+    power_ax.plot(k_orig, Pk_orig, label="Start Point", color="blue")
+    power_ax.plot(k_orig, Pk_fin, label="End Point", color="red")
+    power_ax.legend()
+    power_ax.set_xlim(k_orig.min(), k_orig.max())
+    power_ax.set_ylim(Pk_data.min(), Pk_data.max())
 
-fig, axs = plt.subplots(3, 2, figsize=(24, 24))
+    # Line for power spectrum animation
+    power_line, = power_ax.plot([], [], lw=2, color="green")
 
-# Row 1: Initial and final images from gts
-initial_image_ax = axs[0][0]
-final_image_ax = axs[0][1]
+    # Image Plot
+    img_ax = axs[1]
+    img_ax.set_title(f"{title}: Images")
+    img_ax.axis("off")
+    img_plot = img_ax.imshow(images[0], cmap="viridis", origin="lower")
 
-initial_image = gts[0][1].cpu().numpy().squeeze() * std + mean
-final_image = gts[-1][1].cpu().numpy().squeeze() * std + mean
+    # Update function for animation
+    def update(frame):
+        # Update power spectrum
+        power_line.set_data(k_orig, Pk_data[frame])
+        power_ax.set_title(f"{title}: Power Spectrum - Step {frame}")
 
-initial_image_ax.set_title("Initial Image")
-initial_image_ax.imshow(initial_image, cmap="viridis", origin="lower")
-initial_image_ax.axis("off")
+        # Update image
+        img_plot.set_data(images[frame])
+        img_ax.set_title(f"{title}: Image - Step {frame}")
 
-final_image_ax.set_title("Final Image")
-final_image_ax.imshow(final_image, cmap="viridis", origin="lower")
-final_image_ax.axis("off")
+        return [power_line, img_plot]
 
-# Row 2: Power spectrum animations
-for ax, title in zip(axs[1], ["Gradient-Based Interpolation", "Linear Interpolation"]):
-    ax.set_xscale("log")
-    ax.set_yscale("log")
-    ax.set_title(title)
-    ax.set_xlabel("Wavenumber $k\,[h/Mpc]$")
-    ax.set_ylabel("$P(k)\,[(Mpc/h)^2]$")
-    ax.plot(k_orig, Pk_orig, label='Start Point')
-    ax.plot(k_orig, Pk_fin, label='End Point')
-    ax.set_xlim(k_orig.min(), k_orig.max())
-    ax.set_ylim(min(Pk_grad.min(), Pk_linear.min()), max(Pk_grad.max(), Pk_linear.max()))
-    ax.legend()
+    # Create animation
+    ani = FuncAnimation(fig, update, frames=range(num_samples), blit=True)
 
-# Row 3: Image animations
-img_grad_ax = axs[2][0]
-img_grad_ax.set_title("Gradient-Based Images")
-img_grad_plot = img_grad_ax.imshow(images_grad[0], cmap="viridis", origin="lower")
-img_grad_ax.axis("off")
+    # Save animation as a GIF
+    ani.save(filename, writer=PillowWriter(fps=10))
+    plt.close(fig)
 
-img_linear_ax = axs[2][1]
-img_linear_ax.set_title("Linear Interpolation Images")
-img_linear_plot = img_linear_ax.imshow(images_linear[0], cmap="viridis", origin="lower")
-img_linear_ax.axis("off")
-
-# Animation update functions
-lines = [axs[1][0].plot([], [], lw=2)[0], axs[1][1].plot([], [], lw=2)[0]]
-
-def update(frame):
-    # Update power spectra
-    lines[0].set_data(k_orig, Pk_grad[frame])  # Gradient-based
-    lines[1].set_data(k_orig, Pk_linear[frame])  # Linear
-    
-    # Update images
-    img_grad_plot.set_data(images_grad[frame])
-    img_linear_plot.set_data(images_linear[frame])
-    
-    axs[1][0].set_title(f"Gradient Step: {frame}")
-    axs[1][1].set_title(f"Linear Step: {frame}")
-    return lines + [img_grad_plot, img_linear_plot]
-
-# Create animations
-ani = FuncAnimation(fig, update, frames=range(num_samples), blit=True)
-
-# Save animations
-ani.save("cosmo_compression/results/Pk_and_images_comparison_with_initial_final.gif", writer=PillowWriter(fps=10))
-plt.close(fig)
+# Create combined animations
+create_combined_animation(
+    "Gradient-Based Interpolation", 
+    Pk_grad, 
+    images_grad, 
+    "cosmo_compression/results/Gradient_Combined.gif"
+)
+create_combined_animation(
+    "Linear Interpolation", 
+    Pk_linear, 
+    images_linear, 
+    "cosmo_compression/results/Linear_Combined.gif"
+)
