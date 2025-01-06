@@ -100,7 +100,8 @@ class ResNet(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Overloads forward method of nn.Module"""
+        inp = x.clone()
         x = self.in_layer(x)
         for i, layer in enumerate(self.resnet_layers):
             x = layer(x)
-        return self.fc(torch.squeeze(self.avgpool(x))), x
+        return self.fc(torch.squeeze(self.avgpool(x))), inp
