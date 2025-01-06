@@ -10,7 +10,7 @@ from lightning.pytorch import seed_everything
 import wandb
 import os
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "2,3" 
+os.environ["CUDA_VISIBLE_DEVICES"] = "2,3, 4" 
 
 from cosmo_compression.data.data import CAMELS
 from cosmo_compression.model.represent import Represent 
@@ -187,7 +187,7 @@ def train(args,):
         log_every_n_steps=100,
         accumulate_grad_batches=args.accumulate_gradients if args.accumulate_gradients is not None else 1,
         callbacks=[checkpoint_callback,lr_monitor,],
-        devices=2,
+        devices=3,
         check_val_every_n_epoch=None,  
         val_check_interval=args.eval_every,
         max_epochs=100,

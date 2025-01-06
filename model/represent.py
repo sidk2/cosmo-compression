@@ -119,6 +119,7 @@ class Represent(LightningModule):
         self,
         batch: Tuple[np.array, np.array],
     ) -> torch.Tensor | int:
+        self.optimizers.step()
         loss = self.get_loss(batch=batch)
         self.log("train_loss", loss, prog_bar=True, sync_dist=True)
         return loss

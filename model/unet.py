@@ -69,12 +69,12 @@ class UNetConv(nn.Module):
         if not int_channels:
             int_channels = out_channels
         self.conv1 = nn.Conv2d(
-            in_channels, int_channels, kernel_size=3, padding=1, bias=False
+            in_channels, int_channels, kernel_size=3, padding=1, bias=False, padding_mode='circular'
         )
         self.gn_1 = AdaGN(num_channels=int_channels, num_groups=8)
         self.gelu = nn.GELU()
         self.conv2 = nn.Conv2d(
-            int_channels, out_channels, kernel_size=3, padding=1, bias=False
+            int_channels, out_channels, kernel_size=3, padding=1, bias=False, padding_mode='circular'
         )
         self.gn_2 = AdaGN(num_channels=out_channels, num_groups=8)
 
@@ -223,7 +223,7 @@ class UNet(nn.Module):
         self.sa5 = SelfAttention(channels=128)
         self.up3 = UpStep(in_channels=192, out_channels=64, latent_dim=latent_dim, time_dim=time_dim)
         # self.sa6 = SelfAttention(channels=64)
-        self.outc = nn.Conv2d(in_channels=65, out_channels=n_channels, kernel_size=1)
+        self.outc = nn.Conv2d(in_channels=65, out_channels=n_channels, kernel_size=1, padding_mode='circular')
 
     def pos_encoding(self, t: int, channels: int) -> torch.Tensor:
         """Generate sinusoidal timestep embedding"""

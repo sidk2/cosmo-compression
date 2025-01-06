@@ -18,14 +18,14 @@ class ResnetBlock(nn.Module):
                     out_channels=out_channels,
                     kernel_size=3,
                     stride=stride,
-                    padding=1,
+                    padding=1, padding_mode='circular'
                 ),
                 nn.Conv2d(
                     in_channels=out_channels,
                     out_channels=out_channels,
                     kernel_size=3,
                     stride=1,
-                    padding=1,
+                    padding=1, padding_mode='circular'
                 ),
             ]
         )
@@ -39,7 +39,7 @@ class ResnetBlock(nn.Module):
         if stride != 1 or in_channels != out_channels:
             self.shortcut = nn.Sequential(
                 nn.Conv2d(
-                    in_channels, out_channels, kernel_size=1, stride=stride, bias=False, 
+                    in_channels, out_channels, kernel_size=1, stride=stride, bias=False, padding_mode='circular'
                 ),
                 nn.BatchNorm2d(out_channels),
             )
@@ -71,7 +71,7 @@ class ResNet(nn.Module):
                     kernel_size=3,
                     stride=1,
                     padding=1,
-                    bias=False,
+                    bias=False, padding_mode='circular'
                 ),
                 nn.BatchNorm2d(num_features=64),
                 nn.ReLU(),
