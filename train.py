@@ -104,7 +104,7 @@ parser.add_argument(
 )
 parser.add_argument(
     "--eval_every",
-    default=100,
+    default=200,
     type=int,
     required=False,
     help="frequency of evaluating model, 0 to disable during training",
@@ -166,7 +166,7 @@ def train(args,):
     checkpoint_callback = ModelCheckpoint(
         dirpath=Path(args.output_dir) / f'{run_name}',
         filename='step={step}-{val_loss:.3f}',
-        save_top_k=3,
+        save_top_k=1,
         monitor='val_loss',
         save_last=True,
         every_n_train_steps=args.save_every,
