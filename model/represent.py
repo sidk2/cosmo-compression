@@ -119,7 +119,7 @@ class Represent(LightningModule):
         self,
         batch: Tuple[np.array, np.array],
     ) -> torch.Tensor | int:
-        self.optimizers.step()
+        self.optimizers().step()
         loss = self.get_loss(batch=batch)
         self.log("train_loss", loss, prog_bar=True, sync_dist=True)
         return loss
@@ -170,8 +170,8 @@ class Represent(LightningModule):
 
     def configure_optimizers(self) -> Dict[str, Any]:
         optimizer = torch.optim.AdamW(self.parameters(), lr=1e-4)
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-            optimizer, T_0=1, T_mult=3
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, patience=8,
         )
         return {
             "optimizer": optimizer,
