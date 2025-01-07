@@ -208,7 +208,7 @@ class UNet(nn.Module):
             time_dim = time_dim,
             residual=True,
         )
-        self.down1 = DownStep(in_channels=64, out_channels=128, latent_dim=latent_dim, time_dim=time_dim)
+        self.down1 = DownStep(in_channels=65, out_channels=128, latent_dim=latent_dim, time_dim=time_dim)
         # self.sa1 = SelfAttention(channels=128)
         self.down2 = DownStep(in_channels=128, out_channels=256, latent_dim=latent_dim, time_dim=time_dim)
         self.sa2 = SelfAttention(channels=256)
@@ -223,7 +223,7 @@ class UNet(nn.Module):
         self.sa5 = SelfAttention(channels=128)
         self.up3 = UpStep(in_channels=192, out_channels=64, latent_dim=latent_dim, time_dim=time_dim)
         # self.sa6 = SelfAttention(channels=64)
-        self.outc = nn.Conv2d(in_channels=65, out_channels=n_channels, kernel_size=1, padding_mode='circular')
+        self.outc = nn.Conv2d(in_channels=64, out_channels=n_channels, kernel_size=1, padding_mode='circular')
 
     def pos_encoding(self, t: int, channels: int) -> torch.Tensor:
         """Generate sinusoidal timestep embedding"""
@@ -254,6 +254,7 @@ class UNet(nn.Module):
         t = t.unsqueeze(-1)
         t = self.pos_encoding(t, self.time_dim)
         x1 = self.inc(x, z[:, :latent_dim], t)
+        x1 = torch.cat([latent_img, x1], dim=1)
         x2 = self.down1(x1, z[:, latent_dim:2*latent_dim], t)
         # x2 = self.sa1(x2)
         x3 = self.down2(x2, z[:, 2*latent_dim:3*latent_dim], t)
@@ -270,5 +271,5 @@ class UNet(nn.Module):
         # x = self.sa5(x)
         x = self.up3(x, x1, z[:, 8*latent_dim:], t)
         # x = self.sa6(x)
-        output = self.outc(torch.cat([latent_img, x], dim=1))
+        output = self.outc(x)
         return output
