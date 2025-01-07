@@ -40,7 +40,7 @@ mtot_data_loader = DataLoader(
     pin_memory=True,
 )
 
-fm = Represent.load_from_checkpoint("soda-comp/step=step=3500-val_loss=0.445.ckpt").cuda()
+fm = Represent.load_from_checkpoint("full-img-lat/step=step=25000-val_loss=0.099.ckpt").cuda()
 fm.eval()
 
 # cdm_latents = []

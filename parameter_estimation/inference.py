@@ -81,7 +81,7 @@ if __name__ == '__main__':
 
     # # Training and validation loops
     best_val_loss = float('inf')
-    checkpoint_path = "cosmo_compression/parameter_estimation/data/best_model.pth"
+    checkpoint_path = "cosmo_compression/parameter_estimation/data/best_model_full_img.pth"
 
     for epoch in range(num_epochs):
         # Training
