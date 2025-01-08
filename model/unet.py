@@ -71,12 +71,12 @@ class UNetConv(nn.Module):
         self.conv1 = nn.Conv2d(
             in_channels, int_channels, kernel_size=3, padding=1, bias=False, padding_mode='circular'
         )
-        self.gn_1 = AdaGN(num_channels=int_channels, num_groups=8)
+        self.gn_1 = AdaGN(num_channels=int_channels, num_groups=(8 if int_channels % 8 == 0 else (13 if int_channels % 13 == 0 else int_channels)))
         self.gelu = nn.GELU()
         self.conv2 = nn.Conv2d(
             int_channels, out_channels, kernel_size=3, padding=1, bias=False, padding_mode='circular'
         )
-        self.gn_2 = AdaGN(num_channels=out_channels, num_groups=8)
+        self.gn_2 = AdaGN(num_channels=out_channels, num_groups=(8 if out_channels % 8 == 0 else (13 if out_channels % 13 == 0 else out_channels)))
 
         self.z_scale_proj_1 = nn.Linear(latent_dim, int_channels)
         self.z_bias_proj_1 = nn.Linear(latent_dim, int_channels)
@@ -151,7 +151,6 @@ class DownStep(nn.Module):
         """Overloads forward method of nn.Module"""
         return self.conv2(self.conv1(self.pooling(x), z, t), z, t)
 
-
 class UpStep(nn.Module):
     """Upsample latent and incorporate residual"""
 
@@ -208,7 +207,7 @@ class UNet(nn.Module):
             time_dim = time_dim,
             residual=True,
         )
-        self.down1 = DownStep(in_channels=65, out_channels=128, latent_dim=latent_dim, time_dim=time_dim)
+        self.down1 = DownStep(in_channels=320, out_channels=128, latent_dim=latent_dim, time_dim=time_dim)
         # self.sa1 = SelfAttention(channels=128)
         self.down2 = DownStep(in_channels=128, out_channels=256, latent_dim=latent_dim, time_dim=time_dim)
         self.sa2 = SelfAttention(channels=256)
@@ -221,9 +220,11 @@ class UNet(nn.Module):
         self.sa4 = SelfAttention(channels=256)
         self.up2 = UpStep(in_channels=384, out_channels=128, latent_dim=latent_dim, time_dim=time_dim)
         self.sa5 = SelfAttention(channels=128)
-        self.up3 = UpStep(in_channels=192, out_channels=64, latent_dim=latent_dim, time_dim=time_dim)
+        self.up3 = UpStep(in_channels=448, out_channels=64, latent_dim=latent_dim, time_dim=time_dim)
         # self.sa6 = SelfAttention(channels=64)
         self.outc = nn.Conv2d(in_channels=64, out_channels=n_channels, kernel_size=1, padding_mode='circular')
+        
+        self.upsampler = nn.Upsample(scale_factor=16, mode='bilinear', align_corners=True)
 
     def pos_encoding(self, t: int, channels: int) -> torch.Tensor:
         """Generate sinusoidal timestep embedding"""
@@ -249,6 +250,9 @@ class UNet(nn.Module):
         # There are 9 up/down sampling layers, so z must be latent_dim*9 elements long
         latent_dim = self.latent_dim
         z, latent_img = z
+        
+        # Latent img is 512*16*16
+        latent_img = self.upsampler(latent_img)
         assert z.shape[-1] == self.latent_dim*9
 
         t = t.unsqueeze(-1)
