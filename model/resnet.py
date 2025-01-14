@@ -59,7 +59,7 @@ class ResnetBlock(nn.Module):
 class ResNet(nn.Module):
     """Residual convolutional network (ResNet 18 architecture)"""
 
-    def __init__(self, in_channels: int, latent_dim: int):
+    def __init__(self, in_channels: int, latent_dim: int, latent_img_channels: int = 32,):
         super(ResNet, self).__init__()
         # CAMELS Multifield Dataset is 256x256
         self.in_channels = 64
@@ -83,13 +83,13 @@ class ResNet(nn.Module):
                 self._make_layer(in_channels=64, out_channels=64, num_blocks=1, stride=1),
                 self._make_layer(in_channels=64, out_channels=64, num_blocks=1, stride=1),
                 self._make_layer(in_channels=64, out_channels=128, num_blocks=1, stride=2),
-                self._make_layer(in_channels=128, out_channels=256, num_blocks=1, stride=2),
-                self._make_layer(in_channels=256, out_channels=256, num_blocks=1, stride=2),
+                self._make_layer(in_channels=128, out_channels=128, num_blocks=1, stride=2),
+                self._make_layer(in_channels=128, out_channels=latent_img_channels, num_blocks=1, stride=2),
             ]
         )
         # Downsampled to 64x64
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.fc = nn.Linear(256, latent_dim)
+        self.fc = nn.Linear(latent_img_channels, latent_dim)
 
     def _make_layer(self, in_channels: int, out_channels: int, num_blocks: int, stride: int) -> nn.Sequential:
         strides = [stride] + [1] * (num_blocks - 1)

@@ -1,4 +1,5 @@
 """Implements conditional flow matching from Lipman et. al 23"""
+import time
 
 import torch
 from torch import nn
@@ -105,26 +106,30 @@ class FlowMatching(nn.Module):
         self,
         x0: torch.Tensor,
         h: torch.Tensor | None = None,
-        n_sampling_steps: int = 100,
+        n_sampling_steps: int = 50,
     ) -> torch.Tensor:
         """Runs inference for flow matching model.
 
         Args:
             - x0: The noise field if model is not reversed, else the training sample
             - h: The vector to be conditioned on
-            - n_sampling_steps: The number of steps to be sused when solving the flow matching ODE
+            - n_sampling_steps: The number of steps to be used when solving the flow matching ODE
         """
+        s = time.time()
         conditional_velocity_model = ConditionedVelocityModel(
             velocity_model=self.velocity_model, h=h, reverse=self.reverse
         )
+        # print(f"Model initializiation time is {time.time() - s}")
         node = NeuralODE(
             conditional_velocity_model,
-            solver="dopri5",
+            solver="euler",
             sensitivity="adjoint",
         )
+        s = time.time()
         with torch.no_grad():
             traj = node.trajectory(
                 x0,
                 t_span=torch.linspace(0, 1, n_sampling_steps),
             )
+        # print(f"ODE soln. time is {time.time() - s}")
         return traj[-1]

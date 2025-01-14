@@ -1,6 +1,7 @@
 """Implements a UNet
 
 """
+import time
 
 import torch
 import torch.nn as nn
@@ -193,7 +194,8 @@ class UNet(nn.Module):
         self,
         n_channels: int,
         latent_dim: int = 256,
-        time_dim: int = 256
+        time_dim: int = 256,
+        latent_img_channels: int = 32,
     ):
         super(UNet, self).__init__()
         self.latent_dim = latent_dim
@@ -207,7 +209,7 @@ class UNet(nn.Module):
             time_dim = time_dim,
             residual=True,
         )
-        self.down1 = DownStep(in_channels=320, out_channels=128, latent_dim=latent_dim, time_dim=time_dim)
+        self.down1 = DownStep(in_channels=64 + latent_img_channels, out_channels=128, latent_dim=latent_dim, time_dim=time_dim)
         # self.sa1 = SelfAttention(channels=128)
         self.down2 = DownStep(in_channels=128, out_channels=256, latent_dim=latent_dim, time_dim=time_dim)
         self.sa2 = SelfAttention(channels=256)
@@ -220,7 +222,7 @@ class UNet(nn.Module):
         self.sa4 = SelfAttention(channels=256)
         self.up2 = UpStep(in_channels=384, out_channels=128, latent_dim=latent_dim, time_dim=time_dim)
         self.sa5 = SelfAttention(channels=128)
-        self.up3 = UpStep(in_channels=448, out_channels=64, latent_dim=latent_dim, time_dim=time_dim)
+        self.up3 = UpStep(in_channels=192+latent_img_channels, out_channels=64, latent_dim=latent_dim, time_dim=time_dim)
         # self.sa6 = SelfAttention(channels=64)
         self.outc = nn.Conv2d(in_channels=64, out_channels=n_channels, kernel_size=1, padding_mode='circular')
         
@@ -257,7 +259,7 @@ class UNet(nn.Module):
 
         t = t.unsqueeze(-1)
         t = self.pos_encoding(t, self.time_dim)
-        x1 = self.inc(x, z[:, :latent_dim], t)
+        x1 = self.inc(x, z[ :, :latent_dim], t)
         x1 = torch.cat([latent_img, x1], dim=1)
         x2 = self.down1(x1, z[:, latent_dim:2*latent_dim], t)
         # x2 = self.sa1(x2)
