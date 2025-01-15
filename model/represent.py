@@ -79,7 +79,7 @@ class Represent(LightningModule):
         unconditional: bool = False,
         log_wandb: bool = True,
         reverse: bool = False,
-        latent_img_channels: int = 32,
+        latent_img_channels: int = 2,
     ):
         super().__init__()
         self.save_hyperparameters()

@@ -177,8 +177,8 @@ def train(args,):
         latent_dim=args.latent_dim,
         log_wandb=args.use_wandb,
         unconditional=args.unconditional,
+        latent_img_channels = 256,
     )
-    # fm = Represent.load_from_checkpoint("soda-comp/last-v4.ckpt").cuda()
 
     trainer = Trainer(
         max_steps=args.max_steps, 
@@ -199,5 +199,4 @@ def train(args,):
 
 if __name__ == "__main__":
     args = parser.parse_args()
-    print(args)
     train(args)

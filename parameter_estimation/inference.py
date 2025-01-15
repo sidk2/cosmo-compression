@@ -13,7 +13,7 @@ from scipy import stats as scistats
 
 
 # Set CUDA device
-os.environ["CUDA_VISIBLE_DEVICES"] = "4"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Set random seed for reproducibility
@@ -81,7 +81,7 @@ if __name__ == '__main__':
 
     # # Training and validation loops
     best_val_loss = float('inf')
-    checkpoint_path = "cosmo_compression/parameter_estimation/data/best_model_full_img.pth"
+    checkpoint_path = "cosmo_compression/parameter_estimation/data/best_model_64ch.pth"
 
     for epoch in range(num_epochs):
         # Training

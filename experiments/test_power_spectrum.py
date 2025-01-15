@@ -13,7 +13,6 @@ import matplotlib.pyplot as plt
 import lightning
 from torch.utils.data import DataLoader
 
-
 from cosmo_compression.data import data
 from cosmo_compression.model import represent
 
@@ -36,41 +35,57 @@ data_loader = DataLoader(
         pin_memory=True,
     )
 
+batch_size = 32
 mean = data.NORM_DICT['Mcdm'][256]["mean"]
 std = data.NORM_DICT['Mcdm'][256]["std"]
 
 # Load models
-fm: represent.Represent = represent.Represent.load_from_checkpoint("img-lat-64ch/step=step=44500-val_loss=0.282.ckpt").to(device)
+fm: represent.Represent = represent.Represent.load_from_checkpoint("img-lat-2ch/step=step=31000-val_loss=0.380.ckpt").to(device)
 fm.eval()
 
 tot_diff = 0
-
+ps_diff = 0
 # Iterate through the DataLoader
 for idx, (params, imgs) in enumerate(data_loader):
     print(idx)
+    Pk_orig = np.zeros((batch_size, 181))
+    for i, img in enumerate(imgs):
+        y = img.clone().cpu().numpy().squeeze() * std + mean
+        delta_fields_orig_1 = y / np.mean(y) - 1
+        Pk2D = PKL.Pk_plane(delta_fields_orig_1, 25.0, 'None', 1, verbose=False)
+        k_orig = Pk2D.k
+        Pk_orig[i, :] = Pk2D.Pk
+    
     imgs = imgs.cuda()  # Move batch to GPU
 
+    
     # Encode the batch of images
-    enc_s = time.time()
     latents = fm.encoder(imgs)
-    print(f"Encoding one batch took {time.time() - enc_s}.")
     h, orig = latents
     # h = h.unsqueeze(0)  # Adjust dimension for batching if necessary
 
     latents = (h, orig)
 
     # Generate predictions in batch
-    dec_s = time.time()
     preds = fm.decoder.predict(x0=torch.randn_like(imgs), h=latents)
-    print(f"Decoding one batch took {time.time() - dec_s}.")
+    
+    Pk_pred = np.zeros((batch_size, 181))
+    for i, img in enumerate(preds):
+        y_pred = img.clone().cpu().numpy().squeeze() * std + mean
+        delta_fields_pred_1 = y_pred / np.mean(y_pred) - 1
+        Pk2D_pred = PKL.Pk_plane(delta_fields_pred_1, 25.0, 'None', 1, verbose=False)
+        k_pred = Pk2D_pred.k
+        Pk_pred[i, :] = Pk2D_pred.Pk
 
     # Calculate differences for the batch
     batch_diff = (imgs.cpu().numpy()[:, 0, :, :] - preds.cpu().numpy()[:, 0, :, :]) * std
 
     # Accumulate the differences
     tot_diff += np.sum(np.abs(batch_diff))
+    ps_diff += np.sum(np.abs(Pk_pred - Pk_orig))
 
-print(tot_diff)
+print(tot_diff / 256/256/400)
+print(ps_diff / 400 / 181)
 
 img = imgs[0, 0, :, :]
 # Original Power Spectrum

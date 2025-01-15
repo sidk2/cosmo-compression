@@ -50,7 +50,7 @@ NORM_DICT = {
 class CAMELS(VisionDataset):
     def __init__(
         self,
-        root: str = "CAMELS",
+        root: str = "../../monolith/global_data/astro_compression/CAMELS",
         redshift: float = 0.0,
         transform: Optional[Callable] = None,
         parameters=[
@@ -139,8 +139,7 @@ class CAMELS(VisionDataset):
             "A_SN1",
             "A_SN2",
             "A_AGN1",
-            "A_AGN2",
-            "Omega_b",
+            'A_AGN2', 'Omega_b',
         ]
         params = pd.read_csv(
             self.root / f"params_{dataset}_{suite}.txt",
