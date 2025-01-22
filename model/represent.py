@@ -79,7 +79,7 @@ class Represent(LightningModule):
         unconditional: bool = False,
         log_wandb: bool = True,
         reverse: bool = False,
-        latent_img_channels: int = 2,
+        latent_img_channels: int = 64,
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -87,14 +87,14 @@ class Represent(LightningModule):
         self.unconditional = unconditional
         self.log_wandb = log_wandb
         self.latent_img_channels = latent_img_channels
-        self.encoder = self.initialize_encoder(latent_dim=latent_dim * 9, in_channels=1)
+        self.encoder = self.initialize_encoder(latent_dim=latent_dim * 9, in_channels=3)
         velocity_model = self.initialize_velocity(latent_dim=latent_dim)
         self.decoder = fm.FlowMatching(velocity_model, reverse=reverse)
         self.validation_step_outputs = []
 
     def initialize_velocity(self, latent_dim: int) -> nn.Module:
         return unet.UNet(
-            n_channels=1,
+            n_channels=3,
             time_dim=256,
             latent_dim=latent_dim,
             latent_img_channels = self.latent_img_channels
@@ -107,7 +107,7 @@ class Represent(LightningModule):
         self,
         batch: Tuple[np.array, np.array],
     ) -> torch.Tensor:
-        cosmology, y = batch
+        y, _ = batch
         # Train representation
         h = self.encoder(y) if not self.unconditional else None
         x0 = torch.randn_like(y)
@@ -149,7 +149,7 @@ class Represent(LightningModule):
         batch: Tuple[np.array, np.array],
         log=True,
     ) -> None:
-        cosmology, y = batch
+        y, _ = batch
         h = self.encoder(y) if not self.unconditional else None
         # if h is not None:
         #     h = self.h_embedding(h)
@@ -163,8 +163,8 @@ class Represent(LightningModule):
             print("Logging")
             # plot field reconstruction
             fig, ax = plt.subplots(1, 2, figsize=(8, 4))
-            ax[0].imshow(y[0, 0].detach().cpu().numpy(), cmap="viridis")
-            ax[1].imshow(pred[0, 0].detach().cpu().numpy(), cmap="viridis")
+            ax[0].imshow(((y[0, :, : , :]*0.5)+0.5).detach().cpu().permute(1, 2, 0).numpy())
+            ax[1].imshow(((pred[0, :, : , :]*0.5)+0.5).detach().cpu().permute(1, 2, 0).numpy())
             ax[0].set_title("x")
             ax[1].set_title("Reconstructed x")
             plt.savefig("field_construction.png")
@@ -172,9 +172,9 @@ class Represent(LightningModule):
             plt.close()
 
     def configure_optimizers(self) -> Dict[str, Any]:
-        optimizer = torch.optim.AdamW(self.parameters(), lr=5e-5)
+        optimizer = torch.optim.AdamW(self.parameters(), lr=5e-6)
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, patience=8,
+            optimizer, patience=2,
         )
         return {
             "optimizer": optimizer,

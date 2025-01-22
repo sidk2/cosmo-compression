@@ -145,16 +145,21 @@ h_linear = []
 # ]
 
 for t in np.linspace(0, 1, num_samples):
+    print(starting_latent[0].shape)
     interpolated_vector = (
-        starting_latent[0][:256] + t * (target_latent[0][:256] - starting_latent[0][:256]),
-        starting_latent[0][-256:] + t * (target_latent[0][-256:] - starting_latent[0][-256:]),
+        (starting_latent[0][:,256:512] + t * (target_latent[0][:,256:512] - starting_latent[0][:,256:512])).reshape(-1),
+        (starting_latent[0][:,-512:-256] + t * (target_latent[0][:,-512:-256] - starting_latent[0][:,-512:-256])).reshape(-1),
     )
+    print(interpolated_vector[0].shape)
     interpolated_vector = torch.cat([
-        interpolated_vector[0][:, :256].reshape(-1),
-        starting_latent[0][:, 256:-256].reshape(-1),
-        interpolated_vector[1][:, -256:].reshape(-1)
+        starting_latent[0][:, :256].reshape(-1),
+        interpolated_vector[0],
+        starting_latent[0][:, 512:-512].reshape(-1),
+        interpolated_vector[1],
+        starting_latent[0][:, -256:].reshape(-1),
     ])
-    interpolated_image = starting_latent[1] + t * (target_latent[1] - starting_latent[1])
+    print(interpolated_vector.shape)
+    interpolated_image = starting_latent[1]
     h_linear.append((interpolated_vector.unsqueeze(0), interpolated_image))
 
 starting_omega_m = gts[0][0][0]
