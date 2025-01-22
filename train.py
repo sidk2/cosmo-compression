@@ -228,7 +228,11 @@ def train(args):
     )
     lr_monitor = LearningRateMonitor(logging_interval='step')
 
-    fm = Represent.load_from_checkpoint('face-data-32h/step=step=3000-val_loss=0.021.ckpt')
+    fm = Represent(
+        latent_dim=args.latent_dim,
+        log_wandb=args.use_wandb,
+        unconditional=args.unconditional,
+    )
 
     trainer = Trainer(
         max_steps=args.max_steps,
