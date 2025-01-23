@@ -87,14 +87,14 @@ class Represent(LightningModule):
         self.unconditional = unconditional
         self.log_wandb = log_wandb
         self.latent_img_channels = latent_img_channels
-        self.encoder = self.initialize_encoder(latent_dim=latent_dim * 9, in_channels=3)
+        self.encoder = self.initialize_encoder(latent_dim=latent_dim * 9, in_channels=1)
         velocity_model = self.initialize_velocity(latent_dim=latent_dim)
         self.decoder = fm.FlowMatching(velocity_model, reverse=reverse)
         self.validation_step_outputs = []
 
     def initialize_velocity(self, latent_dim: int) -> nn.Module:
         return unet.UNet(
-            n_channels=3,
+            n_channels=1,
             time_dim=256,
             latent_dim=latent_dim,
             latent_img_channels = self.latent_img_channels
@@ -107,7 +107,7 @@ class Represent(LightningModule):
         self,
         batch: Tuple[np.array, np.array],
     ) -> torch.Tensor:
-        y, _ = batch
+        cosmo, y = batch
         # Train representation
         h = self.encoder(y) if not self.unconditional else None
         x0 = torch.randn_like(y)
@@ -149,7 +149,7 @@ class Represent(LightningModule):
         batch: Tuple[np.array, np.array],
         log=True,
     ) -> None:
-        y, _ = batch
+        cosmo, y = batch
         h = self.encoder(y) if not self.unconditional else None
         # if h is not None:
         #     h = self.h_embedding(h)
@@ -172,9 +172,9 @@ class Represent(LightningModule):
             plt.close()
 
     def configure_optimizers(self) -> Dict[str, Any]:
-        optimizer = torch.optim.AdamW(self.parameters(), lr=5e-6)
+        optimizer = torch.optim.AdamW(self.parameters(), lr=5e-5)
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, patience=2,
+            optimizer, patience=8,
         )
         return {
             "optimizer": optimizer,

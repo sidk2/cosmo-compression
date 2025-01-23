@@ -15,9 +15,11 @@ from lightning.pytorch import seed_everything
 import wandb
 import os
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "2,3,4,5"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3,4,5"
 
-from cosmo_compression.model.represent import Represent
+from cosmo_compression.model import represent
+from cosmo_compression.data import data
+
 
 import torch
 torch.cuda.empty_cache()
@@ -69,7 +71,7 @@ parser.add_argument(
 )
 parser.add_argument(
     "--max_steps",
-    default=1_000_000,
+    default=10_000_000,
     type=int,
     help="steps to run for",
     required=False,
@@ -124,7 +126,7 @@ parser.add_argument('--profile', action='store_true', default=False, help='Set t
 def train(args):
     # fix training seed
     seed_everything(42, workers=True)
-    dataset = 'CelebA' # Hard coded for now, make a command line arg
+    dataset = 'CAMELS' # Hard coded for now, make a command line arg
 
     logger = None
     if args.use_wandb:
@@ -191,7 +193,7 @@ def train(args):
         )
         
     elif dataset == 'CAMELS':
-        train_data = CAMELS(
+        train_data = data.CAMELS(
         idx_list=range(14_600),
         map_type='Mcdm',
         parameters=['Omega_m', 'sigma_8',],
@@ -203,7 +205,7 @@ def train(args):
             num_workers=args.num_workers,
             pin_memory=True,
         )
-        val_data = CAMELS(
+        val_data = data.CAMELS(
             idx_list=range(14_600, 15_000),
             map_type='Mcdm',
             parameters=['Omega_m', 'sigma_8',],
@@ -228,10 +230,11 @@ def train(args):
     )
     lr_monitor = LearningRateMonitor(logging_interval='step')
 
-    fm = Represent(
+    fm = represent.Represent(
         latent_dim=args.latent_dim,
         log_wandb=args.use_wandb,
         unconditional=args.unconditional,
+        latent_img_channels = 64,
     )
 
     trainer = Trainer(
@@ -244,7 +247,7 @@ def train(args):
         devices=4,
         check_val_every_n_epoch=None,
         val_check_interval=args.eval_every,
-        max_epochs=100,
+        max_epochs=200,
         profiler="simple" if args.profile else None,
         accelerator="gpu",
         strategy='ddp_find_unused_parameters_true',

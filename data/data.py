@@ -133,14 +133,7 @@ class CAMELS(VisionDataset):
         ],
     ):
         """Internal function to load parameters from CMD"""
-        column_names: List[str] = [
-            "Omega_m",
-            "sigma_8",
-            "A_SN1",
-            "A_SN2",
-            "A_AGN1",
-            'A_AGN2', 'Omega_b',
-        ]
+        column_names: List[str] = parameters
         params = pd.read_csv(
             self.root / f"params_{dataset}_{suite}.txt",
             sep=" ",
