@@ -87,8 +87,8 @@ class ResNet(nn.Module):
                 self._make_layer(in_channels=128, out_channels=latent_img_channels, num_blocks=1, stride=2),
             ]
         )
-        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.fc = nn.Linear(latent_img_channels, latent_dim)
+        # self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        # self.fc = nn.Linear(latent_img_channels, latent_dim)
 
     def _make_layer(self, in_channels: int, out_channels: int, num_blocks: int, stride: int) -> nn.Sequential:
         strides = [stride] + [1] * (num_blocks - 1)
@@ -102,7 +102,7 @@ class ResNet(nn.Module):
         x = self.in_layer(x)
         for i, layer in enumerate(self.resnet_layers):
             x = layer(x)
-        foo = self.avgpool(x)
+        # foo = self.avgpool(x)
         
-        foo = self.fc(foo.squeeze())
-        return foo, x
+        # foo = self.fc(foo.squeeze())
+        return x

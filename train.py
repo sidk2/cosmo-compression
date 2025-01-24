@@ -15,7 +15,7 @@ from lightning.pytorch import seed_everything
 import wandb
 import os
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "5"
+# os.environ["CUDA_VISIBLE_DEVICES"] = "5"
 
 from cosmo_compression.model import represent
 from cosmo_compression.data import data
@@ -126,7 +126,7 @@ parser.add_argument('--profile', action='store_true', default=False, help='Set t
 def train(args):
     # fix training seed
     seed_everything(42, workers=True)
-    dataset = 'CAMELS' # Hard coded for now, make a command line arg
+    dataset = 'CelebA' # Hard coded for now, make a command line arg
 
     logger = None
     if args.use_wandb:
@@ -234,7 +234,7 @@ def train(args):
         latent_dim=args.latent_dim,
         log_wandb=args.use_wandb,
         unconditional=args.unconditional,
-        latent_img_channels = 64,
+        latent_img_channels = 16,
     )
 
     trainer = Trainer(
@@ -244,11 +244,12 @@ def train(args):
         log_every_n_steps=50,
         accumulate_grad_batches=args.accumulate_gradients if args.accumulate_gradients is not None else 1,
         callbacks=[checkpoint_callback, lr_monitor],
-        devices=1,
+        devices=3,
         check_val_every_n_epoch=None,
         val_check_interval=args.eval_every,
         max_epochs=200,
         profiler="simple" if args.profile else None,
+        strategy="ddp_find_unused_parameters_true",
         accelerator="gpu",
     )
     trainer.fit(model=fm, train_dataloaders=train_loader, val_dataloaders=val_loader)

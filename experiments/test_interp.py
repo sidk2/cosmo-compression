@@ -47,7 +47,7 @@ loader = torchdata.DataLoader(
 
 # Load models
 fm: lightning.LightningModule = represent.Represent.load_from_checkpoint(
-    "cosmo_segm_latent_64ch2wind/step=step=14200-val_loss=0.345.ckpt"
+    "segm_latent_time_32ch1wind/step=step=5600-val_loss=0.402.ckpt"
 ).to(device)
 fm.eval()
 
@@ -89,28 +89,21 @@ Pk_fin = Pk2D.Pk
 h_grad = [gts[0][2][0]]
 h_linear = []
 
-starting_latent = gts[0][2]
-starting_img = starting_latent[1]
-target_latent = gts[-1][2]
-target_img = target_latent[1]
-
-# Linear interpolation: Create latent representations with custom rules
-specified_channels = list(range(0, 4))  # Example channels
-specified_lat_dims = list(range(0, 2304))
+starting_img = gts[0][2]
+target_img = gts[-1][2]
 
 # Initialize a list for the interpolated latents
 h_linear = []
 # Define latent interpolation ranges and labels
 modulation_ranges = {
-    "Low Frequency Modulation": list(range(8, 64)),
-    "High Frequency Modulation": list(range(0, 8)),
+    "Low Frequency Modulation": list(range(0, 16)),
+    "High Frequency Modulation": list(range(16, 32)),
 }
 
 num_samples_per_stage = 10
 all_interpolations = []
 labels = []
 
-current_latent = starting_latent[0].clone()  # Initialize with starting latent
 current_image = starting_img.clone()
 
 for label, specified_channels in modulation_ranges.items():
@@ -123,12 +116,10 @@ for label, specified_channels in modulation_ranges.items():
             + t * target_img[:, specified_channels]
         )
         # Combine the latent vector (unchanged) with the interpolated image
-        interpolated_latent = current_latent.clone()
-        all_interpolations.append((interpolated_latent.unsqueeze(0), interpolated_image))
+        all_interpolations.append( interpolated_image)
         labels.append(label)
 
     # Update current latent and image to the end of this stage
-    current_latent = interpolated_latent.clone()
     current_image = interpolated_image.clone()
 
 # Reverse interpolation
@@ -141,16 +132,14 @@ for label, specified_channels in modulation_ranges.items():
             + t * starting_img[:, specified_channels]
         )
         # Combine the latent vector (unchanged) with the interpolated image
-        interpolated_latent = current_latent.clone()
-        all_interpolations.append((interpolated_latent.unsqueeze(0), interpolated_image))
+        all_interpolations.append(interpolated_image)
         labels.append(f"Reverse: {label}")
 
     # Update current latent and image to the end of this stage
-    current_latent = interpolated_latent.clone()
     current_image = interpolated_image.clone()
 
 # Generate multiple x0s and use the same set for all steps
-num_samples = 5
+num_samples = 1
 x0_samples = [torch.randn((1, 1, 256, 256), device="cuda") for _ in range(num_samples)]
 Pk_interpolations = np.zeros((len(all_interpolations), 181))
 images_interpolations = []
