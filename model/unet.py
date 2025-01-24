@@ -20,13 +20,13 @@ class AdaGN(nn.Module):
     def forward(
         self,
         x: torch.Tensor,
-        # z_s: torch.Tensor,
-        # z_b: torch.Tensor,
+        z_s: torch.Tensor,
+        z_b: torch.Tensor,
         t_s: torch.Tensor | None = None,
         t_b: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Overloads forward method of nn.Module"""
-        norm_x = t_s[:, :, None, None] * self.gn(x) + t_b[:, :, None, None]
+        norm_x = z_s[:, :, None, None] * (t_s[:, :, None, None] * self.gn(x) + t_b[:, :, None, None]) + z_b[:, :, None, None]
         return norm_x
 
 
@@ -105,13 +105,13 @@ class UNetConv(nn.Module):
             ),
         )
 
-        self.z_scale_proj_1 = nn.Linear(latent_dim, int_channels)
-        self.z_bias_proj_1 = nn.Linear(latent_dim, int_channels)
+        self.z_scale_proj_1 = nn.Linear(16, int_channels)
+        self.z_bias_proj_1 = nn.Linear(16, int_channels)
         self.t_scale_proj_1 = nn.Linear(time_dim, int_channels)
         self.t_bias_proj_1 = nn.Linear(time_dim, int_channels)
 
-        self.z_scale_proj_2 = nn.Linear(latent_dim, out_channels)
-        self.z_bias_proj_2 = nn.Linear(latent_dim, out_channels)
+        self.z_scale_proj_2 = nn.Linear(16, out_channels)
+        self.z_bias_proj_2 = nn.Linear(16, out_channels)
         self.t_scale_proj_2 = nn.Linear(time_dim, out_channels)
         self.t_bias_proj_2 = nn.Linear(time_dim, out_channels)
 
@@ -120,8 +120,8 @@ class UNetConv(nn.Module):
     ) -> torch.Tensor:
         """Overloads forward method of nn.Module"""
         # t is shape [batch_size]
-        # z_s1 = self.z_scale_proj_1(z)
-        # z_b1 = self.z_bias_proj_1(z)
+        z_s1 = self.z_scale_proj_1(z)
+        z_b1 = self.z_bias_proj_1(z)
         t_s1 = self.t_scale_proj_1(t)
         t_b1 = self.t_bias_proj_1(t)
 
@@ -131,10 +131,10 @@ class UNetConv(nn.Module):
         t_b2 = self.t_bias_proj_2(t)
 
         x = self.conv1(x)
-        x = self.gn_1(x, t_s1, t_b1)
+        x = self.gn_1(x, z_s1,z_b1, t_s1, t_b1)
         x = self.gelu(x)
         x = self.conv2(x)
-        x = self.gn_2(x, t_s2, t_b2)
+        x = self.gn_2(x, z_s2,z_b2, t_s2, t_b2)
         x = x + self.gelu(x)
 
         return x
@@ -235,7 +235,7 @@ class UNet(nn.Module):
         self.latent_dim = latent_dim
         self.time_dim = time_dim
         self.n_channels = n_channels
-        self.num_latent_channels = 2
+        self.num_latent_channels = 4
         
         # self.dropout = nn.Dropout(p=0.05)
 
@@ -318,13 +318,22 @@ class UNet(nn.Module):
         z, latent_img = z
         
         z_vec_size = z.shape[-1]
-
-        n_latent_channels = latent_img.shape[1]
-        start_indices = (n_latent_channels * t - self.num_latent_channels).floor().int()
-        end_indices = (n_latent_channels * t).floor().int()
+        z_vec_segment_size = self.latent_dim
         
-        start_indices_z = (self.latent_dim*9 * t - self.latent_dim).floor().int()
-        end_indices_z = (self.latent_dim*9 * t).floor().int()
+        n_latent_channels = latent_img.shape[1]
+        latent_img_window_size = self.num_latent_channels
+        
+        num_bins_z = int(z_vec_size / z_vec_segment_size)
+        num_bins_img = int(n_latent_channels / latent_img_window_size)
+        
+        bin_num_z = (num_bins_z*t).floor()
+        bin_num_img = (num_bins_img*t).floor()
+        
+        start_indices = (bin_num_img * latent_img_window_size).floor().int()
+        end_indices = (latent_img_window_size * (bin_num_img+1)).floor().int()
+        
+        start_indices_z = (bin_num_z * z_vec_segment_size).floor().int()
+        end_indices_z = ((bin_num_z+1) * z_vec_segment_size).floor().int()
         
         if t.dim() == 0:
             t = t.repeat(latent_img.shape[0])
@@ -335,48 +344,13 @@ class UNet(nn.Module):
             end_indices_z = end_indices_z.repeat(latent_img.shape[0])
         
         iter_range = range(t.shape[0])
-        to_stack = [
-            (
-                latent_img[i, start_indices[i].item() : end_indices[i].item()]
-                if start_indices[i].item() >= 0
-                else torch.cat(
-                    [
-                        torch.zeros(
-                            (
-                                abs(start_indices[i].item()),
-                                latent_img.shape[-1],
-                                latent_img.shape[-2],
-                            )
-                        ).cuda(),
-                        latent_img[i, 0 : end_indices[i].item()],
-                    ]
-                )
-            )
-            for i in iter_range
-        ]
+        to_stack = [latent_img[i, start_indices[i].item() : end_indices[i].item()] for i in iter_range]
         
-        z_stacked = [
-            (
-                z[i, start_indices_z[i].item() : end_indices_z[i].item()]
-                if start_indices_z[i].item() >= 0
-                else torch.cat(
-                    [
-                        torch.zeros(
-                            (
-                                abs(start_indices_z[i].item()),
-                            )
-                        ).cuda(),
-                        z[i, 0 : end_indices_z[i].item()],
-                    ]
-                )
-            )
-            for i in iter_range
-        ]
+        z_stacked = [z[i, start_indices_z[i].item() : end_indices_z[i].item()] for i in iter_range]
 
         try:
             latent_img = torch.stack(to_stack)
             z = torch.stack(z_stacked)
-            
             
         except:
             print(start_indices, "\n", end_indices, "\n", t)
@@ -388,22 +362,22 @@ class UNet(nn.Module):
         
         t = t.unsqueeze(-1)
         t = self.pos_encoding(t, self.time_dim)
-        x1 = self.inc(x, z, t)
+        x1 = self.inc(x, z[:, 0:16], t)
         x1 = torch.cat([latent_img, x1], dim=1)
-        x2 = self.down1(x1, z, t)
+        x2 = self.down1(x1, z[:, 16:32], t)
         # x2 = self.sa1(x2)
-        x3 = self.down2(x2, z, t)
+        x3 = self.down2(x2, z[:, 32:48], t)
         x3 = self.sa2(x3)
-        x4 = self.down3(x3, z, t)
+        x4 = self.down3(x3, z[:, 48:64], t)
         x4 = self.sa3(x4)
-        x5 = self.down4(x4, z, t)
+        x5 = self.down4(x4, z[:, 64:80], t)
 
-        x = self.up0(x5, x4, z, t)
-        x = self.up1(x4, x3, z, t)
+        x = self.up0(x5, x4, z[:, 80:96], t)
+        x = self.up1(x4, x3, z[:,96:112], t)
         x = self.sa4(x)
-        x = self.up2(x, x2, z, t)
+        x = self.up2(x, x2, z[:, 112:128], t)
         # x = self.sa5(x)
-        x = self.up3(x, x1, z, t)
+        x = self.up3(x, x1, z[:, 128:144], t)
         # x = self.sa6(x)
         output = self.outc(x)
         return output

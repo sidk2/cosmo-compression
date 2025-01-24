@@ -94,7 +94,7 @@ loader = torchdata.DataLoader(
 
 # Load models
 fm: lightning.LightningModule = represent.Represent.load_from_checkpoint(
-    "cosmo_rolling_latent_64ch2wind/step=step=30200-val_loss=0.382.ckpt"
+    "cosmo_segm_latent_64ch2wind/step=step=9200-val_loss=0.358.ckpt"
 ).to(device)
 fm.eval()
 
@@ -143,8 +143,8 @@ target_img = target_latent[1]
 
 
 # Linear interpolation: Create latent representations with custom rules
-specified_channels = list(range(0, 64))  # Example channels
-specified_lat_dims = list(range(0, 2304))
+specified_channels = list(range(0, 8))  # Example channels
+specified_lat_dims = list(range(0, 238))
 
 num_samples = 10
 
@@ -256,17 +256,25 @@ def create_combined_animation_with_params(
 
     # Animation update function
     def update(frame):
-        # Linear interpolation updates
-        linear_img_plot.set_data(linear_images[frame].squeeze())
-        linear_power_line.set_data(k_orig, linear_Pk_data[frame])
+        # Adjust frame index to account for extended pauses at the start and end
+        if frame < 5:  # Stay on the first frame for 5 frames
+            current_frame = 0
+        elif frame >= len(linear_images) + 5:  # Stay on the last frame for 5 frames
+            current_frame = len(linear_images) - 1
+        else:
+            current_frame = frame - 5
+
+        # Update linear interpolation plots
+        linear_img_plot.set_data(linear_images[current_frame].squeeze())
+        linear_power_line.set_data(k_orig, linear_Pk_data[current_frame])
 
         return (
             linear_img_plot,
             linear_power_line,
         )
 
-    # Create animation
-    num_frames = len(linear_images)
+    # Total frames include the extra 5 frames at the start and end
+    num_frames = len(linear_images) + 10
     ani = FuncAnimation(fig, update, frames=num_frames, blit=True)
 
     # Save animation as GIF

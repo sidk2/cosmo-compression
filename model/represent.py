@@ -96,7 +96,7 @@ class Represent(LightningModule):
         return unet.UNet(
             n_channels=1,
             time_dim=256,
-            latent_dim=latent_dim,
+            latent_dim=144,
             latent_img_channels = self.latent_img_channels
         )
 

@@ -15,7 +15,7 @@ from lightning.pytorch import seed_everything
 import wandb
 import os
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3,4,5"
+os.environ["CUDA_VISIBLE_DEVICES"] = "5"
 
 from cosmo_compression.model import represent
 from cosmo_compression.data import data
@@ -78,7 +78,7 @@ parser.add_argument(
 )
 parser.add_argument(
     "--batch_size",
-    default=8,
+    default=16,
     type=int,
     help="batch size",
     required=False,
@@ -106,7 +106,7 @@ parser.add_argument(
 )
 parser.add_argument(
     "--eval_every",
-    default=100,
+    default=50,
     type=int,
     required=False,
     help="frequency of evaluating model, 0 to disable during training",
@@ -239,18 +239,17 @@ def train(args):
 
     trainer = Trainer(
         max_steps=args.max_steps,
-        gradient_clip_val=1.0,
+        # gradient_clip_val=1.0,
         logger=logger,
-        log_every_n_steps=100,
+        log_every_n_steps=50,
         accumulate_grad_batches=args.accumulate_gradients if args.accumulate_gradients is not None else 1,
         callbacks=[checkpoint_callback, lr_monitor],
-        devices=4,
+        devices=1,
         check_val_every_n_epoch=None,
         val_check_interval=args.eval_every,
         max_epochs=200,
         profiler="simple" if args.profile else None,
         accelerator="gpu",
-        strategy='ddp_find_unused_parameters_true',
     )
     trainer.fit(model=fm, train_dataloaders=train_loader, val_dataloaders=val_loader)
 
