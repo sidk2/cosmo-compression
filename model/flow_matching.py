@@ -132,4 +132,4 @@ class FlowMatching(nn.Module):
                 t_span=torch.linspace(0, 1, n_sampling_steps),
             )
         # print(f"ODE soln. time is {time.time() - s}")
-        return traj[-1]
+        return traj

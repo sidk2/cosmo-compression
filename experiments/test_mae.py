@@ -9,6 +9,7 @@ from torch.utils import data as torchdata
 import Pk_library as PKL
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
 
 import lightning
 from torch.utils.data import DataLoader
@@ -41,7 +42,7 @@ std = data.NORM_DICT["Mcdm"][256]["std"]
 
 # Load models
 fm: represent.Represent = represent.Represent.load_from_checkpoint(
-    "cosmo_rolling_latent_64ch2wind/step=step=30200-val_loss=0.382.ckpt"
+    "cosmo_segm_latent_64ch2wind/step=step=14200-val_loss=0.345.ckpt"
 ).to(device)
 fm.eval()
 
@@ -98,64 +99,85 @@ h = h.unsqueeze(0)
 latents = h, orig
 
 pred = fm.decoder.predict(x0=torch.randn_like(img), h=latents)
+num_repeats = 5
 
-# Original Power Spectrum
+# Extract the last entry along the desired dimension (assuming the first dimension here)
+last_entry = pred[-1:]
+
+# Repeat the last entry and concatenate
+pred = torch.cat([pred, last_entry.repeat(num_repeats, *([1] * (pred.dim() - 1)))], dim=0)
+
+# Define the animation function
+def update_plot(i):
+    y_pred = pred[i].cpu().numpy()[0, 0, :, :] * std + mean
+    delta_fields_pred_1 = y_pred / np.mean(y_pred) - 1
+    Pk2D_pred = PKL.Pk_plane(delta_fields_pred_1, 25.0, "None", 1, verbose=False)
+    k_pred = Pk2D_pred.k
+    Pk_pred = Pk2D_pred.Pk
+
+    difference = y - y_pred
+
+    # Update image and plots
+    img1.set_data(y)
+    img2.set_data(y_pred)
+    img3.set_data(difference)
+    img3.set_clim(-4, 4)
+    
+    line_orig.set_data(k_orig, Pk_orig)
+    line_pred.set_data(k_pred, Pk_pred)
+
+    return img1, img2, img3, line_orig, line_pred
+
+# Pre-compute the original power spectrum
 y = img.cpu().numpy().squeeze() * std + mean
 delta_fields_orig_1 = y / np.mean(y) - 1
 Pk2D = PKL.Pk_plane(delta_fields_orig_1, 25.0, "None", 1, verbose=False)
 k_orig = Pk2D.k
 Pk_orig = Pk2D.Pk
 
-# Predicted Power Spectrum
-y_pred = pred.cpu().numpy()[0, 0, :, :] * std + mean
-delta_fields_pred_1 = y_pred / np.mean(y_pred) - 1
-Pk2D_pred = PKL.Pk_plane(delta_fields_pred_1, 25.0, "None", 1, verbose=False)
-k_pred = Pk2D_pred.k
-Pk_pred = Pk2D_pred.Pk
-
-# Create a combined figure
-plt.figure(figsize=(12, 10))
+# Initialize the figure and axes
+fig, axs = plt.subplots(2, 2, figsize=(12, 10))
 
 # Original Image
-plt.subplot(2, 2, 1)
-plt.imshow(y, cmap="viridis", origin="lower")
-plt.colorbar(label="Density")
-plt.title("Original Image")
-plt.axis("off")
+ax1 = axs[0, 0]
+img1 = ax1.imshow(y, cmap="viridis", origin="lower")
+ax1.set_title("Original Image")
+ax1.axis("off")
+plt.colorbar(img1, ax=ax1, label="Density")
 
-# Predicted (Reconstructed) Image
-plt.subplot(2, 2, 2)
-plt.imshow(y_pred, cmap="viridis", origin="lower")
-plt.colorbar(label="Density")
-plt.title("Reconstructed Image")
-plt.axis("off")
+# Predicted Image
+ax2 = axs[0, 1]
+img2 = ax2.imshow(y, cmap="viridis", origin="lower")
+ax2.set_title("Reconstructed Image")
+ax2.axis("off")
+plt.colorbar(img2, ax=ax2, label="Density")
 
 # Power Spectra
-plt.subplot(2, 2, 3)
-plt.plot(k_orig, Pk_orig, label="Original")
-plt.plot(k_pred, Pk_pred, label="Reconstructed")
-plt.xscale("log")
-plt.yscale("log")
-plt.title("Power Spectra")
-plt.xlabel("Wavenumber $k\,[h/Mpc]$")
-plt.ylabel("$P(k)\,[(Mpc/h)^2]$")
-plt.legend()
+ax3 = axs[1, 0]
+line_orig, = ax3.plot(k_orig, Pk_orig, label="Original")
+line_pred, = ax3.plot([], [], label="Reconstructed")
+ax3.set_xscale("log")
+ax3.set_yscale("log")
+ax3.set_title("Power Spectra")
+ax3.set_xlabel("Wavenumber $k\,[h/Mpc]$")
+ax3.set_ylabel("$P(k)\,[(Mpc/h)^2]$")
+ax3.legend()
 
-difference = y - y_pred
-# Error Map (Difference Image)
-print(np.mean(np.abs(difference)))
-plt.subplot(2, 2, 4)
-plt.imshow(
-    difference,
-    cmap="seismic",
-    origin="lower",
-    vmin=-np.max(abs(difference)),
-    vmax=np.max(abs(difference)),
-)
-plt.colorbar(label="Difference")
-plt.title("Error Map")
-plt.axis("off")
+# Difference Image
+ax4 = axs[1, 1]
+img3 = ax4.imshow(np.zeros_like(y), cmap="seismic", origin="lower", vmin=-1, vmax=1)
+ax4.set_title("Error Map")
+ax4.axis("off")
+plt.colorbar(img3, ax=ax4, label="Difference")
 
-# Adjust layout and save
+# Adjust layout
 plt.tight_layout()
-plt.savefig("cosmo_compression/results/2x2_figure.png")
+
+# Create the animation
+anim = FuncAnimation(fig, update_plot, frames=len(pred), blit=True)
+
+# Save or display the animation
+anim.save("cosmo_compression/results/animation.gif", writer="imagemagick")
+# Alternatively, display in a Jupyter Notebook
+# from IPython.display import HTML
+# HTML(anim.to_jshtml())

@@ -26,8 +26,7 @@ class AdaGN(nn.Module):
         t_b: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Overloads forward method of nn.Module"""
-        norm_x = z_s[:, :, None, None] * (t_s[:, :, None, None] * self.gn(x) + t_b[:, :, None, None]) + z_b[:, :, None, None]
-        return norm_x
+        return t_s[:,:,None, None]*self.gn(x)+t_b[:,:,None, None]
 
 
 class SelfAttention(nn.Module):
@@ -105,13 +104,13 @@ class UNetConv(nn.Module):
             ),
         )
 
-        self.z_scale_proj_1 = nn.Linear(16, int_channels)
-        self.z_bias_proj_1 = nn.Linear(16, int_channels)
+        self.z_scale_proj_1 = nn.Linear(latent_dim, int_channels)
+        self.z_bias_proj_1 = nn.Linear(latent_dim, int_channels)
         self.t_scale_proj_1 = nn.Linear(time_dim, int_channels)
         self.t_bias_proj_1 = nn.Linear(time_dim, int_channels)
 
-        self.z_scale_proj_2 = nn.Linear(16, out_channels)
-        self.z_bias_proj_2 = nn.Linear(16, out_channels)
+        self.z_scale_proj_2 = nn.Linear(latent_dim, out_channels)
+        self.z_bias_proj_2 = nn.Linear(latent_dim, out_channels)
         self.t_scale_proj_2 = nn.Linear(time_dim, out_channels)
         self.t_bias_proj_2 = nn.Linear(time_dim, out_channels)
 
@@ -362,22 +361,22 @@ class UNet(nn.Module):
         
         t = t.unsqueeze(-1)
         t = self.pos_encoding(t, self.time_dim)
-        x1 = self.inc(x, z[:, 0:16], t)
+        x1 = self.inc(x, z, t)
         x1 = torch.cat([latent_img, x1], dim=1)
-        x2 = self.down1(x1, z[:, 16:32], t)
+        x2 = self.down1(x1, z, t)
         # x2 = self.sa1(x2)
-        x3 = self.down2(x2, z[:, 32:48], t)
+        x3 = self.down2(x2, z, t)
         x3 = self.sa2(x3)
-        x4 = self.down3(x3, z[:, 48:64], t)
+        x4 = self.down3(x3, z, t)
         x4 = self.sa3(x4)
-        x5 = self.down4(x4, z[:, 64:80], t)
+        x5 = self.down4(x4, z, t)
 
-        x = self.up0(x5, x4, z[:, 80:96], t)
-        x = self.up1(x4, x3, z[:,96:112], t)
+        x = self.up0(x5, x4, z, t)
+        x = self.up1(x4, x3, z, t)
         x = self.sa4(x)
-        x = self.up2(x, x2, z[:, 112:128], t)
+        x = self.up2(x, x2, z, t)
         # x = self.sa5(x)
-        x = self.up3(x, x1, z[:, 128:144], t)
+        x = self.up3(x, x1, z, t)
         # x = self.sa6(x)
         output = self.outc(x)
         return output
