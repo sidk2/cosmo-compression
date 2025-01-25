@@ -126,7 +126,7 @@ parser.add_argument('--profile', action='store_true', default=False, help='Set t
 def train(args):
     # fix training seed
     seed_everything(42, workers=True)
-    dataset = 'CelebA' # Hard coded for now, make a command line arg
+    dataset = 'CAMELS' # Hard coded for now, make a command line arg
 
     logger = None
     if args.use_wandb:

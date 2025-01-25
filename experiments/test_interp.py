@@ -47,7 +47,7 @@ loader = torchdata.DataLoader(
 
 # Load models
 fm: lightning.LightningModule = represent.Represent.load_from_checkpoint(
-    "segm_latent_time_32ch1wind/step=step=5600-val_loss=0.402.ckpt"
+    "segm_latent_time_16ch2wind/step=step=27500-val_loss=0.384.ckpt"
 ).to(device)
 fm.eval()
 
@@ -96,11 +96,11 @@ target_img = gts[-1][2]
 h_linear = []
 # Define latent interpolation ranges and labels
 modulation_ranges = {
-    "Low Frequency Modulation": list(range(0, 16)),
-    "High Frequency Modulation": list(range(16, 32)),
+    "Low Frequency Modulation": list(range(0, 15)),
+    "High Frequency Modulation": list(range(15, 16)),
 }
 
-num_samples_per_stage = 10
+num_samples_per_stage = 30
 all_interpolations = []
 labels = []
 
@@ -121,22 +121,23 @@ for label, specified_channels in modulation_ranges.items():
 
     # Update current latent and image to the end of this stage
     current_image = interpolated_image.clone()
+    break
 
-# Reverse interpolation
-for label, specified_channels in modulation_ranges.items():
-    for i in range(num_samples_per_stage):
-        t = i / (num_samples_per_stage - 1)  # Interpolation factor
-        interpolated_image = current_image.clone()  # Clone the current image
-        interpolated_image[:, specified_channels] = (
-            (1 - t) * target_img[:, specified_channels]
-            + t * starting_img[:, specified_channels]
-        )
-        # Combine the latent vector (unchanged) with the interpolated image
-        all_interpolations.append(interpolated_image)
-        labels.append(f"Reverse: {label}")
+# # Reverse interpolation
+# for label, specified_channels in modulation_ranges.items():
+#     for i in range(num_samples_per_stage):
+#         t = i / (num_samples_per_stage - 1)  # Interpolation factor
+#         interpolated_image = current_image.clone()  # Clone the current image
+#         interpolated_image[:, specified_channels] = (
+#             (1 - t) * target_img[:, specified_channels]
+#             + t * starting_img[:, specified_channels]
+#         )
+#         # Combine the latent vector (unchanged) with the interpolated image
+#         all_interpolations.append(interpolated_image)
+#         labels.append(f"Reverse: {label}")
 
-    # Update current latent and image to the end of this stage
-    current_image = interpolated_image.clone()
+#     # Update current latent and image to the end of this stage
+#     current_image = interpolated_image.clone()
 
 # Generate multiple x0s and use the same set for all steps
 num_samples = 1
@@ -233,7 +234,7 @@ def create_combined_animation_with_pauses(Pk_data, images, labels, filename, pau
         )
 
     ani = FuncAnimation(fig, update, frames=len(extended_frames), blit=True)
-    ani.save(filename, writer=PillowWriter(fps=5))
+    ani.save(filename, writer=PillowWriter(fps=1))
     plt.close(fig)
 
 # Create the combined animation with pauses after each modulation phase
