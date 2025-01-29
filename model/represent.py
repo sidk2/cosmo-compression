@@ -87,7 +87,7 @@ class Represent(LightningModule):
         self.unconditional = unconditional
         self.log_wandb = log_wandb
         self.latent_img_channels = latent_img_channels
-        self.encoder = self.initialize_encoder(latent_dim=latent_dim * 9, in_channels=2)
+        self.encoder = self.initialize_encoder(latent_dim=latent_dim * 9, in_channels=1)
         velocity_model = self.initialize_velocity(latent_dim=latent_dim)
         self.decoder = fm.FlowMatching(velocity_model, reverse=reverse)
         self.validation_step_outputs = []

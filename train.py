@@ -126,7 +126,7 @@ parser.add_argument('--profile', action='store_true', default=False, help='Set t
 def train(args):
     # fix training seed
     seed_everything(42, workers=True)
-    dataset = 'CelebA' # Hard coded for now, make a command line arg
+    dataset = 'CAMELS' # Hard coded for now, make a command line arg
 
     logger = None
     if args.use_wandb:
@@ -194,7 +194,7 @@ def train(args):
         
     elif dataset == 'CAMELS':
         train_data = data.CAMELS(
-        idx_list=range(14_600),
+        idx_list=range(14_000),
         map_type='Mcdm',
         parameters=['Omega_m', 'sigma_8',],
         )
@@ -206,7 +206,7 @@ def train(args):
             pin_memory=True,
         )
         val_data = data.CAMELS(
-            idx_list=range(14_600, 15_000),
+            idx_list=range(14_000, 15_000),
             map_type='Mcdm',
             parameters=['Omega_m', 'sigma_8',],
         )
@@ -230,21 +230,20 @@ def train(args):
     )
     lr_monitor = LearningRateMonitor(logging_interval='step')
 
-    fm = represent.Represent(
-        latent_dim=args.latent_dim,
-        log_wandb=args.use_wandb,
-        unconditional=args.unconditional,
-        latent_img_channels = 16,
-    )
-
+    # fm = represent.Represent(
+    #     latent_dim=args.latent_dim,
+    #     log_wandb=args.use_wandb,
+    #     unconditional=args.unconditional,
+    #     latent_img_channels = 32,
+    # )
     trainer = Trainer(
         max_steps=args.max_steps,
         # gradient_clip_val=1.0,
         logger=logger,
         log_every_n_steps=50,
-        accumulate_grad_batches=args.accumulate_gradients if args.accumulate_gradients is not None else 1,
+        accumulate_grad_batches=args.accumulate_gradients if args.accumulate_gradients is not None else 2,
         callbacks=[checkpoint_callback, lr_monitor],
-        devices=3,
+        devices=4,
         check_val_every_n_epoch=None,
         val_check_interval=args.eval_every,
         max_epochs=200,

@@ -101,14 +101,9 @@ class UNetConv(nn.Module):
                 else (13 if out_channels % 13 == 0 else out_channels)
             ),
         )
-
-        # self.z_scale_proj_1 = nn.Linear(latent_dim, int_channels)
-        # self.z_bias_proj_1 = nn.Linear(latent_dim, int_channels)
         self.t_scale_proj_1 = nn.Linear(time_dim, int_channels)
         self.t_bias_proj_1 = nn.Linear(time_dim, int_channels)
 
-        # self.z_scale_proj_2 = nn.Linear(latent_dim, out_channels)
-        # self.z_bias_proj_2 = nn.Linear(latent_dim, out_channels)
         self.t_scale_proj_2 = nn.Linear(time_dim, out_channels)
         self.t_bias_proj_2 = nn.Linear(time_dim, out_channels)
 
@@ -117,13 +112,9 @@ class UNetConv(nn.Module):
     ) -> torch.Tensor:
         """Overloads forward method of nn.Module"""
         # t is shape [batch_size]
-        # z_s1 = self.z_scale_proj_1(z)
-        # z_b1 = self.z_bias_proj_1(z)
         t_s1 = self.t_scale_proj_1(t)
         t_b1 = self.t_bias_proj_1(t)
 
-        # z_s2 = self.z_scale_proj_2(z)
-        # z_b2 = self.z_bias_proj_2(z)
         t_s2 = self.t_scale_proj_2(t)
         t_b2 = self.t_bias_proj_2(t)
 
@@ -216,7 +207,65 @@ class UpStep(nn.Module):
         x = self.conv1(x, z, t)
         x = self.conv2(x, z, t)
         return x
+class TimeConditionedAttention(nn.Module):
+    def __init__(self, latent_channels):
+        super(TimeConditionedAttention, self).__init__()
+        self.latent_channels = latent_channels
+        self.time_embed_dim = latent_channels
 
+        # Time embedding layer
+        self.time_embed = nn.Sequential(
+            nn.Linear(1, latent_channels),  # Map scalar time to higher dimension
+            nn.SiLU(),
+            nn.Linear(latent_channels, latent_channels)
+        )
+
+        # Attention mechanism
+        self.query_proj = nn.Conv2d(latent_channels, latent_channels, kernel_size=1)
+        self.key_proj = nn.Conv2d(latent_channels, latent_channels, kernel_size=1)
+        self.value_proj = nn.Conv2d(latent_channels, latent_channels, kernel_size=1)
+
+        # Output projection
+        self.out_proj = nn.Conv2d(latent_channels, latent_channels, kernel_size=1)
+
+    def forward(self, latent, time):
+        """
+        Args:
+            latent: Tensor of shape [batch_size, channels, height, width]
+            time: Tensor of shape [batch_size] or scalar
+        Returns:
+            rescaled_latent: Tensor of shape [batch_size, channels, height, width]
+        """
+        batch_size, channels, height, width = latent.shape
+
+        # Handle scalar time input
+        if time.dim() == 0:
+            time = time.unsqueeze(0).expand(batch_size)  # Broadcast to batch size
+
+        # Compute time embeddings
+        time = time.unsqueeze(-1).float()  # Shape: [batch_size, 1]
+        time_embed = self.time_embed(time)  # Shape: [batch_size, time_embed_dim]
+
+        # Reshape time embeddings to match spatial dimensions
+        time_embed = time_embed.view(batch_size, self.time_embed_dim, 1, 1)  # Shape: [batch_size, time_embed_dim, 1, 1]
+
+        # Compute queries, keys, and values
+        query = self.query_proj(latent)  # Shape: [batch_size, channels, height, width]
+        key = self.key_proj(latent)  # Shape: [batch_size, channels, height, width]
+        value = self.value_proj(latent)  # Shape: [batch_size, channels, height, width]
+
+        # Compute attention scores
+        attn_scores = torch.einsum('bchw,bcHW->bhwHW', query, key)  # Shape: [batch_size, height, width, height, width]
+        attn_scores = attn_scores / (channels ** 0.5)  # Scale by sqrt(dim)
+        attn_weights = nn.functional.softmax(attn_scores, dim=-1)  # Shape: [batch_size, height, width, height, width]
+
+        # Apply attention to values
+        rescaled_latent = torch.einsum('bhwHW,bcHW->bchw', attn_weights, value)  # Shape: [batch_size, channels, height, width]
+
+        # Project output
+        rescaled_latent = self.out_proj(rescaled_latent)  # Shape: [batch_size, channels, height, width]
+
+        return rescaled_latent
 
 class UNet(nn.Module):
     """Creates a UNet using the building block modules in this file"""
@@ -232,9 +281,11 @@ class UNet(nn.Module):
         self.latent_dim = latent_dim
         self.time_dim = time_dim
         self.n_channels = n_channels
-        self.num_latent_channels = 2
+        self.num_latent_channels = latent_img_channels
         
-        self.dropout = nn.Dropout2d(p=0.5)
+        self.time_conditioner = TimeConditionedAttention(latent_channels=self.num_latent_channels)
+        
+        # self.dropout = nn.Dropout2d(p=0.2)
 
         self.inc = UNetConv(
             in_channels=n_channels,
@@ -313,35 +364,36 @@ class UNet(nn.Module):
         """
         
         latent_img = z
+        # latent_img = self.dropout(latent_img)
+        rescaled_img = self.time_conditioner(latent_img,t)
         
-        n_latent_channels = latent_img.shape[1]
-        latent_img_window_size = self.num_latent_channels
+        # n_latent_channels = latent_img.shape[1]
+        # latent_img_window_size = self.num_latent_channels
         
-        num_bins_img = int(n_latent_channels / latent_img_window_size)
+        # num_bins_img = int(n_latent_channels / latent_img_window_size)
         
-        bin_num_img = (num_bins_img*t).floor()
+        # bin_num_img = (num_bins_img*t).floor()
         
-        start_indices = (bin_num_img * latent_img_window_size).floor().int()
-        end_indices = (latent_img_window_size * (bin_num_img+1)).floor().int()
+        # start_indices = (bin_num_img * latent_img_window_size).floor().int()
+        # end_indices = (latent_img_window_size * (bin_num_img+1)).floor().int()
 
-        if t.dim() == 0:
-            t = t.repeat(latent_img.shape[0])
-            start_indices = start_indices.repeat(latent_img.shape[0])
-            end_indices = end_indices.repeat(latent_img.shape[0])
+        # if t.dim() == 0:
+        #     t = t.repeat(latent_img.shape[0])
+        #     start_indices = start_indices.repeat(latent_img.shape[0])
+        #     end_indices = end_indices.repeat(latent_img.shape[0])
         
-        iter_range = range(t.shape[0])
-        to_stack = [latent_img[i, start_indices[i].item() : end_indices[i].item()] for i in iter_range]
+        # iter_range = range(t.shape[0])
+        # to_stack = [latent_img[i, start_indices[i].item() : end_indices[i].item()] for i in iter_range]
         
-        try:
-            latent_img = torch.stack(to_stack)
+        # try:
+        #     latent_img = torch.stack(to_stack)
             
-        except:
-            print(start_indices, "\n", end_indices, "\n", t)
-            print(f"Shapes: \n {[foo.shape for foo in to_stack]}")
-            exit(0)
+        # except:
+        #     print(start_indices, "\n", end_indices, "\n", t)
+        #     print(f"Shapes: \n {[foo.shape for foo in to_stack]}")
+        #     exit(0)
 
-        latent_img = self.upsampler(latent_img)
-        latent_img = self.dropout(latent_img)
+        latent_img = self.upsampler(rescaled_img)
         
         t = t.unsqueeze(-1)
         t = self.pos_encoding(t, self.time_dim)
