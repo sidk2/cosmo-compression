@@ -24,7 +24,7 @@ class AdaGN(nn.Module):
         t_b: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Overloads forward method of nn.Module"""
-        return t_s[:,:,None, None]*self.gn(x)+t_b[:,:,None, None]
+        return self.gn(x)
 
 
 class SelfAttention(nn.Module):
@@ -281,7 +281,7 @@ class UNet(nn.Module):
         self.latent_dim = latent_dim
         self.time_dim = time_dim
         self.n_channels = n_channels
-        self.num_latent_channels = latent_img_channels
+        self.num_latent_channels = 1
         
         self.time_conditioner = TimeConditionedAttention(latent_channels=self.num_latent_channels)
         
@@ -365,35 +365,35 @@ class UNet(nn.Module):
         
         latent_img = z
         # latent_img = self.dropout(latent_img)
-        rescaled_img = self.time_conditioner(latent_img,t)
+        # rescaled_img = self.time_conditioner(latent_img,t)
         
-        # n_latent_channels = latent_img.shape[1]
-        # latent_img_window_size = self.num_latent_channels
+        n_latent_channels = latent_img.shape[1]
+        latent_img_window_size = self.num_latent_channels
         
-        # num_bins_img = int(n_latent_channels / latent_img_window_size)
+        num_bins_img = int(n_latent_channels / latent_img_window_size)
         
-        # bin_num_img = (num_bins_img*t).floor()
+        bin_num_img = (num_bins_img*t).floor()
         
-        # start_indices = (bin_num_img * latent_img_window_size).floor().int()
-        # end_indices = (latent_img_window_size * (bin_num_img+1)).floor().int()
+        start_indices = (bin_num_img * latent_img_window_size).floor().int()
+        end_indices = (latent_img_window_size * (bin_num_img+1)).floor().int()
 
-        # if t.dim() == 0:
-        #     t = t.repeat(latent_img.shape[0])
-        #     start_indices = start_indices.repeat(latent_img.shape[0])
-        #     end_indices = end_indices.repeat(latent_img.shape[0])
+        if t.dim() == 0:
+            t = t.repeat(latent_img.shape[0])
+            start_indices = start_indices.repeat(latent_img.shape[0])
+            end_indices = end_indices.repeat(latent_img.shape[0])
         
-        # iter_range = range(t.shape[0])
-        # to_stack = [latent_img[i, start_indices[i].item() : end_indices[i].item()] for i in iter_range]
+        iter_range = range(t.shape[0])
+        to_stack = [latent_img[i, start_indices[i].item() : end_indices[i].item()] for i in iter_range]
         
-        # try:
-        #     latent_img = torch.stack(to_stack)
+        try:
+            latent_img = torch.stack(to_stack)
             
-        # except:
-        #     print(start_indices, "\n", end_indices, "\n", t)
-        #     print(f"Shapes: \n {[foo.shape for foo in to_stack]}")
-        #     exit(0)
+        except:
+            print(start_indices, "\n", end_indices, "\n", t)
+            print(f"Shapes: \n {[foo.shape for foo in to_stack]}")
+            exit(0)
 
-        latent_img = self.upsampler(rescaled_img)
+        latent_img = self.upsampler(latent_img)
         
         t = t.unsqueeze(-1)
         t = self.pos_encoding(t, self.time_dim)

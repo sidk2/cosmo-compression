@@ -47,7 +47,7 @@ loader = torchdata.DataLoader(
 
 # Load models
 fm: lightning.LightningModule = represent.Represent.load_from_checkpoint(
-    "segm_latent_time_32ch1wind/step=step=5600-val_loss=0.402.ckpt"
+    "no_time_to_decode/step=step=3700-val_loss=0.428.ckpt"
 ).to(device)
 fm.eval()
 
@@ -96,8 +96,8 @@ target_img = gts[-1][2]
 h_linear = []
 # Define latent interpolation ranges and labels
 modulation_ranges = {
-    "Low Frequency Modulation": list(range(0, 16)),
-    "High Frequency Modulation": list(range(16, 32)),
+    "Low Frequency Modulation": list(range(0, 8)),
+    "High Frequency Modulation": list(range(8, 16)),
 }
 
 num_samples_per_stage = 10

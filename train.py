@@ -230,12 +230,12 @@ def train(args):
     )
     lr_monitor = LearningRateMonitor(logging_interval='step')
 
-    # fm = represent.Represent(
-    #     latent_dim=args.latent_dim,
-    #     log_wandb=args.use_wandb,
-    #     unconditional=args.unconditional,
-    #     latent_img_channels = 32,
-    # )
+    fm = represent.Represent(
+        latent_dim=args.latent_dim,
+        log_wandb=args.use_wandb,
+        unconditional=args.unconditional,
+        latent_img_channels = 64,
+    )
     trainer = Trainer(
         max_steps=args.max_steps,
         # gradient_clip_val=1.0,
