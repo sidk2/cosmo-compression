@@ -17,7 +17,7 @@ import torch.nn as nn
 import wandb
 import os
 
-# os.environ["CUDA_VISIBLE_DEVICES"] = "5"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 from cosmo_compression.model import represent
 from cosmo_compression.data import data
@@ -80,7 +80,7 @@ parser.add_argument(
 )
 parser.add_argument(
     "--batch_size",
-    default=8,
+    default=16,
     type=int,
     help="batch size",
     required=False,
@@ -128,7 +128,7 @@ parser.add_argument('--profile', action='store_true', default=False, help='Set t
 def train(args):
     # fix training seed
     seed_everything(137, workers=True)
-    dataset = 'CelebA' # Hard coded for now, make a command line arg
+    dataset = 'CAMELS' # Hard coded for now, make a command line arg
 
     logger = None
     if args.use_wandb:

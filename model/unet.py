@@ -25,8 +25,7 @@ class AdaGN(nn.Module):
         t_b: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Overloads forward method of nn.Module"""
-        return t_s[:,:,None, None] * self.gn(x) + t_b[:,:,None, None]
-
+        return self.gn(x)
 
 class SelfAttention(nn.Module):
     """Implementation of a self-attention module"""
