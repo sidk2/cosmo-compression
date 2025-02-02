@@ -7,7 +7,7 @@ import time
 import torch
 import torch.nn as nn
 
-import gdn
+from cosmo_compression.model import gdn
 
 class AdaGN(nn.Module):
     """
@@ -117,7 +117,7 @@ class UpsamplingUNetConv(nn.Module):
         x1 = self.gelu(x)
         x = self.conv2(x1)
         x = self.gn_2(x, t_s2, t_b2)
-        x = x1 + self.gelu(x)
+        x = self.gelu(x)
 
         return x
 
@@ -194,7 +194,7 @@ class UNetConv(nn.Module):
         x = self.gelu(x)
         x = self.conv2(x)
         x = self.gn_2(x, t_s2, t_b2)
-        x = x + self.gelu(x)
+        x = self.gelu(x)
 
         return x
 
@@ -232,7 +232,7 @@ class DownStep(nn.Module):
             residual=True,
         )
         
-        self.gdn_layer = gdn.GDN(ch = out_channels)
+        self.gdn_layer = gdn.GDN(ch = out_channels, device='cuda')
 
     def forward(self, x: torch.Tensor, t) -> torch.Tensor:
         """Overloads forward method of nn.Module"""
@@ -264,7 +264,7 @@ class UpStep(nn.Module):
             latent_dim=1,
             time_dim=256,
         )
-        self.gdn_layer = gdn.GDN(ch=out_channels)
+        self.gdn_layer = gdn.GDN(ch=out_channels, device='cuda')
 
     def forward(self, x: torch.Tensor, res_x: torch.Tensor, t) -> torch.Tensor:
         """Overloads forward method of nn.Module"""

@@ -157,7 +157,7 @@ def train(args):
             transform=transform
         )
 
-        subset_size = 50000
+        subset_size = 100000
         subset_indices = random.sample(range(len(train_data)), subset_size)
         subset_dataset = Subset(train_data, subset_indices)
 
@@ -241,7 +241,7 @@ def train(args):
         latent_dim=args.latent_dim,
         log_wandb=args.use_wandb,
         unconditional=args.unconditional,
-        latent_img_channels = 8,
+        latent_img_channels = 4,
     )
     
     fm.apply(init_weights)
@@ -253,7 +253,7 @@ def train(args):
         log_every_n_steps=50,
         accumulate_grad_batches=args.accumulate_gradients if args.accumulate_gradients is not None else 4,
         callbacks=[checkpoint_callback, lr_monitor],
-        devices=4,
+        devices=2,
         check_val_every_n_epoch=None,
         val_check_interval=args.eval_every,
         max_epochs=200,
