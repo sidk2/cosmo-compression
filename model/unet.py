@@ -114,10 +114,10 @@ class UpsamplingUNetConv(nn.Module):
 
         x = self.conv1(x)
         x = self.gn_1(x, t_s1, t_b1)
-        x1 = self.gelu(x)
-        x = self.conv2(x1)
-        x = self.gn_2(x, t_s2, t_b2)
         x = self.gelu(x)
+        x = self.conv2(x)
+        x = self.gn_2(x, t_s2, t_b2)
+        x = x + self.gelu(x)
 
         return x
 
@@ -194,7 +194,7 @@ class UNetConv(nn.Module):
         x = self.gelu(x)
         x = self.conv2(x)
         x = self.gn_2(x, t_s2, t_b2)
-        x = self.gelu(x)
+        x = x + self.gelu(x)
 
         return x
 
@@ -231,9 +231,7 @@ class DownStep(nn.Module):
             time_dim=time_dim,
             residual=True,
         )
-        
-        self.gdn_layer = gdn.GDN(ch = out_channels, device='cuda')
-
+        self.gdn_layer = gdn.GDN(ch = out_channels, device = 'cuda')
     def forward(self, x: torch.Tensor, t) -> torch.Tensor:
         """Overloads forward method of nn.Module"""
         return self.gdn_layer(self.conv2(self.conv1(self.pooling(x), t), t))
@@ -264,7 +262,8 @@ class UpStep(nn.Module):
             latent_dim=1,
             time_dim=256,
         )
-        self.gdn_layer = gdn.GDN(ch=out_channels, device='cuda')
+        
+        self.gdn_layer = gdn.GDN(ch = out_channels, device='cuda', inverse=True)
 
     def forward(self, x: torch.Tensor, res_x: torch.Tensor, t) -> torch.Tensor:
         """Overloads forward method of nn.Module"""
