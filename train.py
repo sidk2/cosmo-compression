@@ -17,7 +17,7 @@ import torch.nn as nn
 import wandb
 import os
 
-# os.environ["CUDA_VISIBLE_DEVICES"] = "5"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,2,3"
 
 from cosmo_compression.model import represent
 from cosmo_compression.data import data
@@ -237,12 +237,13 @@ def train(args):
             nn.init.kaiming_normal_(m.weight, a=0, mode='fan_in', nonlinearity='relu', generator=None)
             m.bias.data.fill_(0.01)
     
-    fm = represent.Represent(
-        latent_dim=args.latent_dim,
-        log_wandb=args.use_wandb,
-        unconditional=args.unconditional,
-        latent_img_channels = 8,
-    )
+    # fm = represent.Represent(
+    #     latent_dim=args.latent_dim,
+    #     log_wandb=args.use_wandb,
+    #     unconditional=args.unconditional,
+    #     latent_img_channels = 8,
+    # )
+    fm = represent.Represent.load_from_checkpoint('time_to_code_faces_w_gdn/step=step=3100-val_loss=0.033.ckpt').cuda()
     
     fm.apply(init_weights)
     
@@ -253,12 +254,12 @@ def train(args):
         log_every_n_steps=50,
         accumulate_grad_batches=args.accumulate_gradients if args.accumulate_gradients is not None else 4,
         callbacks=[checkpoint_callback, lr_monitor],
-        devices=1,
+        devices=3,
         check_val_every_n_epoch=None,
         val_check_interval=args.eval_every,
         max_epochs=200,
         profiler="simple" if args.profile else None,
-        # strategy="ddp_find_unused_parameters_true",
+        strategy="ddp_find_unused_parameters_true",
         accelerator="gpu",
     )
     trainer.fit(model=fm, train_dataloaders=train_loader, val_dataloaders=val_loader)

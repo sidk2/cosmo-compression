@@ -231,7 +231,7 @@ class DownStep(nn.Module):
             time_dim=time_dim,
             residual=True,
         )
-        self.gdn_layer = gdn.GDN(ch = out_channels, device = 'cuda')
+        self.gdn_layer = gdn.GDN(ch = out_channels, device = next(self.parameters()).device)
     def forward(self, x: torch.Tensor, t) -> torch.Tensor:
         """Overloads forward method of nn.Module"""
         return self.gdn_layer(self.conv2(self.conv1(self.pooling(x), t), t))
@@ -263,7 +263,7 @@ class UpStep(nn.Module):
             time_dim=256,
         )
         
-        self.gdn_layer = gdn.GDN(ch = out_channels, device='cuda', inverse=True)
+        self.gdn_layer = gdn.GDN(ch = out_channels, device=next(self.parameters()).device, inverse=True)
 
     def forward(self, x: torch.Tensor, res_x: torch.Tensor, t) -> torch.Tensor:
         """Overloads forward method of nn.Module"""
@@ -415,9 +415,7 @@ class UNet(nn.Module):
 
     def pos_encoding(self, t: int, channels: int) -> torch.Tensor:
         """Generate sinusoidal timestep embedding"""
-        device = (
-            torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-        )
+        device = next(self.parameters()).device
         inv_freq = 1.0 / (
             10000 ** (torch.arange(0, channels, 2, device=device).float() / channels)
         )
