@@ -20,7 +20,7 @@ from cosmo_compression.parameter_estimation import inference
 
 torch.manual_seed(42)
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "5"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 MAP_TYPE = "Mcdm"
 MAP_RESOLUTION = 256
@@ -47,7 +47,7 @@ loader = torchdata.DataLoader(
 
 # Load models
 fm: lightning.LightningModule = represent.Represent.load_from_checkpoint(
-    "no_time_to_decode/step=step=3700-val_loss=0.428.ckpt"
+    "time_to_encode/step=step=3700-val_loss=0.426.ckpt"
 ).to(device)
 fm.eval()
 
@@ -63,9 +63,13 @@ Pk_fin = np.zeros(181)
 cosmo, img = dataset[0]
 img = torch.tensor(img).unsqueeze(0).cuda()
 
-latent = fm.encoder(img)
+n_sampling_steps = 40
+t = torch.linspace(0, 1, n_sampling_steps).cuda()
+        
+hs = [fm.encoder(img, ts) for ts in t]  # List of tensors
+h = torch.cat(hs, dim=1)
 
-gts.append((cosmo, img * std + mean, latent))
+gts.append((cosmo, img * std + mean, h))
 y = img.cpu().numpy().squeeze() * std + mean
 delta_fields_orig_1 = y / np.mean(y) - 1
 Pk2D = PKL.Pk_plane(delta_fields_orig_1, 25.0, "None", 1, verbose=False)
@@ -75,9 +79,10 @@ Pk_orig = Pk2D.Pk
 cosmo, img = dataset[60]
 img = torch.tensor(img).unsqueeze(0).cuda()
 
-latent = fm.encoder(img)
+hs = [fm.encoder(img, ts) for ts in t]  # List of tensors
+h = torch.cat(hs, dim=1)
 
-gts.append((cosmo, img * std + mean, latent))
+gts.append((cosmo, img * std + mean, h))
 
 y = img.cpu().numpy().squeeze() * std + mean
 delta_fields_orig_1 = y / np.mean(y) - 1
@@ -96,11 +101,11 @@ target_img = gts[-1][2]
 h_linear = []
 # Define latent interpolation ranges and labels
 modulation_ranges = {
-    "Low Frequency Modulation": list(range(0, 8)),
-    "High Frequency Modulation": list(range(8, 16)),
+    "Low Frequency Modulation": list(range(0, n_sampling_steps)),
+    # "High Frequency Modulation": list(range(8, n_sampling_steps)),
 }
 
-num_samples_per_stage = 10
+num_samples_per_stage = 5
 all_interpolations = []
 labels = []
 
@@ -149,7 +154,7 @@ for i, latent_interpolation in tqdm.tqdm(enumerate(all_interpolations)):
     Pk_samples = []  # To store power spectra for each x0
 
     for x0 in x0_samples:
-        pred = fm.decoder.predict(x0.cuda(), h=latent_interpolation, n_sampling_steps=50)
+        pred = fm.decoder.predict(x0.cuda(), h=latent_interpolation, n_sampling_steps=n_sampling_steps)
         preds.append(pred.cpu().numpy()[0, 0, :, :])
         
         # Compute power spectrum for this sample

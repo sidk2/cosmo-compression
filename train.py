@@ -12,6 +12,8 @@ from lightning.pytorch.callbacks import ModelCheckpoint, LearningRateMonitor
 from lightning import Trainer
 from lightning.pytorch import seed_everything
 
+import torch.nn as nn
+
 import wandb
 import os
 
@@ -78,7 +80,7 @@ parser.add_argument(
 )
 parser.add_argument(
     "--batch_size",
-    default=16,
+    default=8,
     type=int,
     help="batch size",
     required=False,
@@ -125,8 +127,8 @@ parser.add_argument('--profile', action='store_true', default=False, help='Set t
 
 def train(args):
     # fix training seed
-    seed_everything(42, workers=True)
-    dataset = 'CAMELS' # Hard coded for now, make a command line arg
+    seed_everything(137, workers=True)
+    dataset = 'CelebA' # Hard coded for now, make a command line arg
 
     logger = None
     if args.use_wandb:
@@ -145,7 +147,7 @@ def train(args):
             ),
             transforms.CenterCrop((256, 256)),  # Crop if necessary to get an exact 256x256 resolution
             transforms.ToTensor(),  # Convert images to tensors
-            transforms.Normalize((0.5,), (0.5,))  # Normalize to [-1, 1]
+            transforms.Normalize((0), (1))  # Normalize to [-1, 1]
         ])
 
         train_data = CelebA(
@@ -155,7 +157,7 @@ def train(args):
             transform=transform
         )
 
-        subset_size = 12000
+        subset_size = 50000
         subset_indices = random.sample(range(len(train_data)), subset_size)
         subset_dataset = Subset(train_data, subset_indices)
 
@@ -177,7 +179,7 @@ def train(args):
             transform=transform
         )
         
-        subset_size = 3000
+        subset_size = 10000
         subset_indices = random.sample(range(len(val_data)), subset_size)
         subset_dataset = Subset(val_data, subset_indices)
 
@@ -229,19 +231,27 @@ def train(args):
         every_n_train_steps=args.save_every,
     )
     lr_monitor = LearningRateMonitor(logging_interval='step')
-
+    
+    def init_weights(m):
+        if isinstance(m, nn.Linear):
+            nn.init.kaiming_normal_(m.weight, a=0, mode='fan_in', nonlinearity='relu', generator=None)
+            m.bias.data.fill_(0.01)
+    
     fm = represent.Represent(
         latent_dim=args.latent_dim,
         log_wandb=args.use_wandb,
         unconditional=args.unconditional,
-        latent_img_channels = 64,
+        latent_img_channels = 8,
     )
+    
+    fm.apply(init_weights)
+    
     trainer = Trainer(
         max_steps=args.max_steps,
         # gradient_clip_val=1.0,
         logger=logger,
         log_every_n_steps=50,
-        accumulate_grad_batches=args.accumulate_gradients if args.accumulate_gradients is not None else 2,
+        accumulate_grad_batches=args.accumulate_gradients if args.accumulate_gradients is not None else 4,
         callbacks=[checkpoint_callback, lr_monitor],
         devices=4,
         check_val_every_n_epoch=None,

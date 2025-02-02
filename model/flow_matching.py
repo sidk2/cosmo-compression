@@ -13,28 +13,27 @@ class ConditionedVelocityModel(nn.Module):
         self,
         velocity_model: torch.nn.Module,
         h: torch.Tensor | None,
+        n_sampling_steps: int,
         reverse: bool = False,
     ):
         super(ConditionedVelocityModel, self).__init__()
         self.reverse = reverse
         self.velocity_model = velocity_model
         self.h = h
-
+        self.time_steps = torch.linspace(0, 1, n_sampling_steps).cuda()
     def forward(
         self,
-        t: torch.Tensor | int,
         x: torch.Tensor,
-        h: torch.Tensor | None = None,
+        t: torch.Tensor,
         *args,
         **kwargs,
     ) -> torch.Tensor:
         """Overloads forward method of nn.Module"""
-        if not h:
-            h = self.h
+        index = (t*(len(self.time_steps)-1)).floor().int().item()*8
         return (
-            -1 * self.velocity_model(x, t=t, z=h)
+            -1 * self.velocity_model(x, t, z=(self.h[:, index:index+8, : , :]))
             if self.reverse
-            else self.velocity_model(x, t=t, z=h)
+            else self.velocity_model(x, t, z=(self.h[:, index:index+8, : , :]))
         )
 
 
@@ -90,7 +89,8 @@ class FlowMatching(nn.Module):
     ) -> torch.Tensor:
         """Given a noise field and a training sample, compute the flow matching loss."""
         if t is None:
-            t = torch.rand(x0.shape[0], device=x0.device).type_as(x0)
+            print("t not provided!")
+            exit(0)
 
         if self.sigma != 0.0:
             eps = torch.randn_like(x0)
@@ -99,12 +99,13 @@ class FlowMatching(nn.Module):
         xt = self.sample_xt(x0, x1, t, eps)
         ut = x1 - x0
         # embed class to add to time embeddings
-        vt = self.velocity_model(xt, t=t, z=h)
+        vt = self.velocity_model(xt, t, z=h)
         return torch.mean((vt - ut) ** 2)
 
     def predict(
         self,
         x0: torch.Tensor,
+        t: torch.Tensor,
         h: torch.Tensor | None = None,
         n_sampling_steps: int = 50,
     ) -> torch.Tensor:
@@ -115,21 +116,15 @@ class FlowMatching(nn.Module):
             - h: The vector to be conditioned on
             - n_sampling_steps: The number of steps to be used when solving the flow matching ODE
         """
-        s = time.time()
         conditional_velocity_model = ConditionedVelocityModel(
-            velocity_model=self.velocity_model, h=h, reverse=self.reverse
+            velocity_model=self.velocity_model, h=h, reverse=self.reverse, n_sampling_steps=n_sampling_steps,
         )
-        # print(f"Model initializiation time is {time.time() - s}")
         node = NeuralODE(
             conditional_velocity_model,
             solver="euler",
             sensitivity="adjoint",
         )
-        s = time.time()
+        t = torch.linspace(0, 1, n_sampling_steps)
         with torch.no_grad():
-            traj = node.trajectory(
-                x0,
-                t_span=torch.linspace(0, 1, n_sampling_steps),
-            )
-        # print(f"ODE soln. time is {time.time() - s}")
+            t_eval, traj = node(x0, t)
         return traj[-1]

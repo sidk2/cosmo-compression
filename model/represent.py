@@ -87,14 +87,14 @@ class Represent(LightningModule):
         self.unconditional = unconditional
         self.log_wandb = log_wandb
         self.latent_img_channels = latent_img_channels
-        self.encoder = self.initialize_encoder(latent_dim=latent_dim * 9, in_channels=1)
+        self.encoder = self.initialize_encoder(latent_dim=latent_dim * 9, in_channels=3)
         velocity_model = self.initialize_velocity(latent_dim=latent_dim)
         self.decoder = fm.FlowMatching(velocity_model, reverse=reverse)
         self.validation_step_outputs = []
 
     def initialize_velocity(self, latent_dim: int) -> nn.Module:
         return unet.UNet(
-            n_channels=1,
+            n_channels=3,
             time_dim=256,
             latent_dim=144,
             latent_img_channels = self.latent_img_channels
@@ -105,16 +105,18 @@ class Represent(LightningModule):
 
     def get_loss(
         self,
-        batch: Tuple[np.array, np.array],
+        batch: Tuple[torch.Tensor, torch.Tensor],
     ) -> torch.Tensor:
-        cosmo, y = batch
+        y, cosmo = batch
         # Train representation
-        h = self.encoder(y) if not self.unconditional else None
+        t = torch.rand((y.shape[0]), device = y.device)
+        h = self.encoder(y, t) if not self.unconditional else None
         x0 = torch.randn_like(y)
         decoder_loss = self.decoder.compute_loss(
             x0=x0,
             x1=y,
             h=h,
+            t=t,
         )
         return decoder_loss
 
@@ -149,22 +151,25 @@ class Represent(LightningModule):
         batch: Tuple[np.array, np.array],
         log=True,
     ) -> None:
-        cosmo, y = batch
-        h = self.encoder(y) if not self.unconditional else None
-        # if h is not None:
-        #     h = self.h_embedding(h)
+        y, cosmo = batch
+        t = torch.linspace(0, 1, 50).cuda()
+        
+        hs = [self.encoder(y, ts) if not self.unconditional else None for ts in t]  # List of tensors
+        h = torch.cat(hs, dim=1)
+        
         x0 = torch.randn_like(y)
         pred = self.decoder.predict(
             x0,
             h=h,
+            t=t,
             n_sampling_steps=50,
         )
         if log:
             print("Logging")
             # plot field reconstruction
             fig, ax = plt.subplots(1, 2, figsize=(8, 4))
-            ax[0].imshow(((y[0, :, : , :]*0.5)+0.5).detach().cpu().permute(1, 2, 0).numpy())
-            ax[1].imshow(((pred[0, :, : , :]*0.5)+0.5).detach().cpu().permute(1, 2, 0).numpy())
+            ax[0].imshow(y[0, :, : , :].detach().cpu().permute(1, 2, 0).numpy())
+            ax[1].imshow(pred[0, :, : , :].detach().cpu().permute(1, 2, 0).numpy())
             ax[0].set_title("x")
             ax[1].set_title("Reconstructed x")
             plt.savefig("field_construction.png")
@@ -172,9 +177,9 @@ class Represent(LightningModule):
             plt.close()
 
     def configure_optimizers(self) -> Dict[str, Any]:
-        optimizer = torch.optim.AdamW(self.parameters(), lr=5e-5)
+        optimizer = torch.optim.AdamW(self.parameters(), lr=1e-4)
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, patience=8,
+            optimizer, patience=12, factor=0.5
         )
         return {
             "optimizer": optimizer,

@@ -84,8 +84,8 @@ class ResNet(nn.Module):
                 self._make_layer(in_channels=64, out_channels=64, num_blocks=1, stride=1),
                 self._make_layer(in_channels=64, out_channels=128, num_blocks=1, stride=2),
                 self._make_layer(in_channels=128, out_channels=128, num_blocks=1, stride=2),
-                # self._make_layer(in_channels=128, out_channels=128, num_blocks=1, stride=2),
-                self._make_layer(in_channels=128, out_channels=latent_img_channels, num_blocks=1, stride=2),
+                self._make_layer(in_channels=128, out_channels=256, num_blocks=1, stride=1),
+                self._make_layer(in_channels=256, out_channels=latent_img_channels, num_blocks=1, stride=2),
             ]
         )
         # self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
@@ -97,13 +97,36 @@ class ResNet(nn.Module):
         for stride in strides:
             layers.append(ResnetBlock(in_channels, out_channels, stride))
         return nn.Sequential(*layers)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    
+    def pos_encoding(self, t: int, channels: int) -> torch.Tensor:
+        """Generate sinusoidal timestep embedding"""
+        device = (
+            torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+        )
+        if channels == 1:
+            t = t.view(-1, 1).repeat(1, max(1,channels // 2))
+            inv_freq = 1.0 / (
+                10000 ** (torch.arange(0, channels, 2, device=device).float() / channels)
+            )
+            pos_enc_a = torch.sin(t * inv_freq)
+            return pos_enc_a
+        
+        t = t.view(-1, 1).repeat(1, max(1,channels // 2))
+        inv_freq = 1.0 / (
+            10000 ** (torch.arange(0, channels, 2, device=device).float() / channels)
+        )
+        pos_enc_a = torch.sin(t * inv_freq)
+        pos_enc_b = torch.cos(t * inv_freq)
+        pos_enc = torch.cat([pos_enc_a, pos_enc_b], dim=-1)
+        return pos_enc
+    
+    def forward(self, x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
         """Overloads forward method of nn.Module"""
         x = self.in_layer(x)
+        # print("latent: ", x)
+        x = x * self.pos_encoding(t, channels=64).unsqueeze(-1).unsqueeze(-1)
         for i, layer in enumerate(self.resnet_layers):
             x = layer(x)
-        # foo = self.avgpool(x)
-        
-        # foo = self.fc(foo.squeeze())
-        return x
+        # print("time: ", t)
+        # print("pos encoding: ", self.pos_encoding(t, channels=1).unsqueeze(-1).unsqueeze(-1))
+        return x * self.pos_encoding(t, channels=1).unsqueeze(-1).unsqueeze(-1)
