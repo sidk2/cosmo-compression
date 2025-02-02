@@ -108,7 +108,7 @@ parser.add_argument(
 )
 parser.add_argument(
     "--eval_every",
-    default=50,
+    default=200,
     type=int,
     required=False,
     help="frequency of evaluating model, 0 to disable during training",
@@ -251,7 +251,7 @@ def train(args):
         max_steps=args.max_steps,
         # gradient_clip_val=1.0,
         logger=logger,
-        log_every_n_steps=50,
+        log_every_n_steps=200,
         accumulate_grad_batches=args.accumulate_gradients if args.accumulate_gradients is not None else 4,
         callbacks=[checkpoint_callback, lr_monitor],
         devices=3,
