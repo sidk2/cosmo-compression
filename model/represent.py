@@ -172,8 +172,8 @@ class Represent(LightningModule):
             ax[1].imshow(pred[0, :, : , :].detach().cpu().permute(1, 2, 0).numpy())
             ax[0].set_title("x")
             ax[1].set_title("Reconstructed x")
-            plt.savefig("field_construction.png")
-            log_matplotlib_figure("field_reconstruction")
+            plt.savefig("cosmo_compression/results/field_reconstruction.png")
+            # log_matplotlib_figure("field_reconstruction")
             plt.close()
 
     def configure_optimizers(self) -> Dict[str, Any]:

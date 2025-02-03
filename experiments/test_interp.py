@@ -20,7 +20,7 @@ from cosmo_compression.parameter_estimation import inference
 
 torch.manual_seed(42)
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "4"
 
 MAP_TYPE = "Mcdm"
 MAP_RESOLUTION = 256
@@ -47,7 +47,7 @@ loader = torchdata.DataLoader(
 
 # Load models
 fm: lightning.LightningModule = represent.Represent.load_from_checkpoint(
-    "time_to_encode/step=step=3700-val_loss=0.426.ckpt"
+    "camels_gdn_time_for_encoding/step=step=16400-val_loss=0.363.ckpt"
 ).to(device)
 fm.eval()
 
@@ -60,7 +60,7 @@ gts = []
 Pk_orig = np.zeros(181)
 Pk_fin = np.zeros(181)
 
-cosmo, img = dataset[0]
+img, cosmo = dataset[0]
 img = torch.tensor(img).unsqueeze(0).cuda()
 
 n_sampling_steps = 40
@@ -76,7 +76,7 @@ Pk2D = PKL.Pk_plane(delta_fields_orig_1, 25.0, "None", 1, verbose=False)
 k_orig = Pk2D.k
 Pk_orig = Pk2D.Pk
 
-cosmo, img = dataset[60]
+img, cosmo = dataset[60]
 img = torch.tensor(img).unsqueeze(0).cuda()
 
 hs = [fm.encoder(img, ts) for ts in t]  # List of tensors
@@ -101,8 +101,8 @@ target_img = gts[-1][2]
 h_linear = []
 # Define latent interpolation ranges and labels
 modulation_ranges = {
-    "Low Frequency Modulation": list(range(0, n_sampling_steps)),
-    # "High Frequency Modulation": list(range(8, n_sampling_steps)),
+    "Low Frequency Modulation": list(range(0, 8)),
+    "High Frequency Modulation": list(range(8, n_sampling_steps*4)),
 }
 
 num_samples_per_stage = 5
@@ -154,7 +154,7 @@ for i, latent_interpolation in tqdm.tqdm(enumerate(all_interpolations)):
     Pk_samples = []  # To store power spectra for each x0
 
     for x0 in x0_samples:
-        pred = fm.decoder.predict(x0.cuda(), h=latent_interpolation, n_sampling_steps=n_sampling_steps)
+        pred = fm.decoder.predict(x0.cuda(), t=1, h=latent_interpolation, n_sampling_steps=n_sampling_steps)
         preds.append(pred.cpu().numpy()[0, 0, :, :])
         
         # Compute power spectrum for this sample

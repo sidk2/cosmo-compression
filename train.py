@@ -241,9 +241,9 @@ def train(args):
         latent_dim=args.latent_dim,
         log_wandb=args.use_wandb,
         unconditional=args.unconditional,
-        latent_img_channels = 8,
+        latent_img_channels = 4,
     )
-    
+        
     fm.apply(init_weights)
     
     trainer = Trainer(
