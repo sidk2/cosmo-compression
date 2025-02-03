@@ -107,7 +107,7 @@ class Represent(LightningModule):
         self,
         batch: Tuple[torch.Tensor, torch.Tensor],
     ) -> torch.Tensor:
-        y, cosmo = batch
+        y = batch
         # Train representation
         t = torch.rand((y.shape[0]), device = y.device)
         h = self.encoder(y, t) if not self.unconditional else None
@@ -151,7 +151,7 @@ class Represent(LightningModule):
         batch: Tuple[np.array, np.array],
         log=True,
     ) -> None:
-        y, cosmo = batch
+        y = batch
         t = torch.linspace(0, 1, 50).cuda()
         
         hs = [self.encoder(y, ts) if not self.unconditional else None for ts in t]  # List of tensors

@@ -71,7 +71,7 @@ class ResNet(nn.Module):
                     kernel_size=3,
                     stride=1,
                     padding=1,
-                    bias=False, padding_mode='circular'
+                    bias=False, padding_mode='zeros'
                 ),
                 nn.BatchNorm2d(num_features=64),
                 nn.ReLU(),

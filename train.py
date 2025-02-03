@@ -128,7 +128,7 @@ parser.add_argument('--profile', action='store_true', default=False, help='Set t
 def train(args):
     # fix training seed
     seed_everything(137, workers=True)
-    dataset = 'CelebA' # Hard coded for now, make a command line arg
+    dataset = 'CelebA64' # Hard coded for now, make a command line arg
 
     logger = None
     if args.use_wandb:
@@ -219,8 +219,21 @@ def train(args):
             num_workers=args.num_workers,
             pin_memory=True,
         )
-        
-    print(f'Using {len(train_data)} training samples and {len(val_data)} validation samples.')
+    
+    elif dataset == 'CelebA64':
+        def get_celeba64_dataloader(root_dir, split='train', batch_size=64, shuffle=True, num_workers=4):
+            transform = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0, 0, 0], std=[1,1,1])
+            ])
+            
+            dataset = data.CelebA64Dataset(root_dir, split, transform)
+            dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
+            
+            return dataloader
+        train_loader = get_celeba64_dataloader('../../monolith/global_data/astro_compression/celeba_64', 'train')
+        val_loader = get_celeba64_dataloader('../../monolith/global_data/astro_compression/celeba_64', 'val', shuffle=False)
+    # print(f'Using {len(train_data)} training samples and {len(val_data)} validation samples.')
 
     checkpoint_callback = ModelCheckpoint(
         dirpath=Path(args.output_dir) / f'{run_name}',
@@ -237,13 +250,12 @@ def train(args):
             nn.init.kaiming_normal_(m.weight, a=0, mode='fan_in', nonlinearity='relu', generator=None)
             m.bias.data.fill_(0.01)
     
-    # fm = represent.Represent(
-    #     latent_dim=args.latent_dim,
-    #     log_wandb=args.use_wandb,
-    #     unconditional=args.unconditional,
-    #     latent_img_channels = 8,
-    # )
-    fm = represent.Represent.load_from_checkpoint('time_to_code_faces_w_gdn/step=step=3100-val_loss=0.033.ckpt').cuda()
+    fm = represent.Represent(
+        latent_dim=args.latent_dim,
+        log_wandb=args.use_wandb,
+        unconditional=args.unconditional,
+        latent_img_channels = 8,
+    )
     
     fm.apply(init_weights)
     

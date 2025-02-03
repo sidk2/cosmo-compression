@@ -8,6 +8,10 @@ from torchio.transforms import Resize
 from torch.utils.data import Dataset
 import torch
 
+from PIL import Image
+
+import os
+
 logging.basicConfig(level=logging.WARNING)
 
 # map_type: {resolution: , std: mean:, min: }
@@ -170,3 +174,22 @@ class CAMELS(VisionDataset):
             self.map_type
         ][self.resolution]["std"]
         return y, x
+
+
+class CelebA64Dataset(Dataset):
+    def __init__(self, root_dir, split='train', transform=None):
+        self.root_dir = os.path.join(root_dir, split)
+        self.image_paths = [os.path.join(self.root_dir, fname) for fname in os.listdir(self.root_dir) if fname.endswith(('png', 'jpg', 'jpeg'))]
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.image_paths)
+
+    def __getitem__(self, idx):
+        img_path = self.image_paths[idx]
+        image = Image.open(img_path).convert('RGB')
+        
+        if self.transform:
+            image = self.transform(image)
+        
+        return image
