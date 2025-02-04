@@ -80,7 +80,7 @@ parser.add_argument(
 )
 parser.add_argument(
     "--batch_size",
-    default=8,
+    default=384,
     type=int,
     help="batch size",
     required=False,
@@ -108,7 +108,7 @@ parser.add_argument(
 )
 parser.add_argument(
     "--eval_every",
-    default=200,
+    default=100,
     type=int,
     required=False,
     help="frequency of evaluating model, 0 to disable during training",
@@ -221,7 +221,7 @@ def train(args):
         )
     
     elif dataset == 'CelebA64':
-        def get_celeba64_dataloader(root_dir, split='train', batch_size=64, shuffle=True, num_workers=4):
+        def get_celeba64_dataloader(root_dir, split='train', batch_size=args.batch_size, shuffle=True, num_workers=4):
             transform = transforms.Compose([
                 transforms.ToTensor(),
                 transforms.Normalize(mean=[0, 0, 0], std=[1,1,1])
@@ -263,13 +263,13 @@ def train(args):
         max_steps=args.max_steps,
         # gradient_clip_val=1.0,
         logger=logger,
-        log_every_n_steps=200,
-        accumulate_grad_batches=args.accumulate_gradients if args.accumulate_gradients is not None else 4,
+        log_every_n_steps=100,
+        accumulate_grad_batches=args.accumulate_gradients if args.accumulate_gradients is not None else 1,
         callbacks=[checkpoint_callback, lr_monitor],
         devices=3,
         check_val_every_n_epoch=None,
         val_check_interval=args.eval_every,
-        max_epochs=200,
+        max_epochs=1000,
         profiler="simple" if args.profile else None,
         strategy="ddp_find_unused_parameters_true",
         accelerator="gpu",

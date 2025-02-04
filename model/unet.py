@@ -144,7 +144,7 @@ class UNetConv(nn.Module):
             kernel_size=3,
             padding=1,
             bias=False,
-            padding_mode="circular",
+            padding_mode="zeros",
         )
         self.gn_1 = AdaGN(
             num_channels=int_channels,
@@ -161,7 +161,7 @@ class UNetConv(nn.Module):
             kernel_size=3,
             padding=1,
             bias=False,
-            padding_mode="circular",
+            padding_mode="zeros",
         )
         self.gn_2 = AdaGN(
             num_channels=out_channels,
@@ -383,7 +383,7 @@ class UNet(nn.Module):
             in_channels=64,
             out_channels=n_channels,
             kernel_size=1,
-            padding_mode="circular",
+            padding_mode="zeros",
         )
         
         self.latent_upsampler = nn.ModuleList(
@@ -393,12 +393,12 @@ class UNet(nn.Module):
                 latent_dim=latent_dim,
                 time_dim=time_dim,
             ),
-            UpStepWoutRes(
-                in_channels=self.num_latent_channels,
-                out_channels=self.num_latent_channels,
-                latent_dim=latent_dim,
-                time_dim=time_dim,
-            ),
+            # UpStepWoutRes(
+            #     in_channels=self.num_latent_channels,
+            #     out_channels=self.num_latent_channels,
+            #     latent_dim=latent_dim,
+            #     time_dim=time_dim,
+            # ),
             UpStepWoutRes(
                 in_channels=self.num_latent_channels,
                 out_channels=self.num_latent_channels,
