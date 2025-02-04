@@ -47,7 +47,7 @@ loader = torchdata.DataLoader(
 
 # Load models
 fm: lightning.LightningModule = represent.Represent.load_from_checkpoint(
-    "camels_gdn_time_for_encoding/step=step=16400-val_loss=0.363.ckpt"
+    "camels_gdn_time_for_encoding/step=step=22000-val_loss=0.361.ckpt"
 ).to(device)
 fm.eval()
 
