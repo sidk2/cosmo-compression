@@ -224,7 +224,7 @@ def train(args):
         def get_celeba64_dataloader(root_dir, split='train', batch_size=args.batch_size, shuffle=True, num_workers=4):
             transform = transforms.Compose([
                 transforms.ToTensor(),
-                transforms.Normalize(mean=[0, 0, 0], std=[1,1,1])
+                transforms.Normalize(mean=[0, 0, 0], std=[1,1,1], inplace=True)
             ])
             
             dataset = data.CelebA64Dataset(root_dir, split, transform)

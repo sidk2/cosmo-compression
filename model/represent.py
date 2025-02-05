@@ -124,7 +124,6 @@ class Represent(LightningModule):
         self,
         batch: Tuple[np.array, np.array],
     ) -> torch.Tensor | int:
-        self.optimizers().step()
         loss = self.get_loss(batch=batch)
         self.log("train_loss", loss, prog_bar=True, sync_dist=True)
         return loss
@@ -140,6 +139,7 @@ class Represent(LightningModule):
         mean_val_loss = torch.stack(
             [output["val_loss"] for output in self.validation_step_outputs]
         ).mean()
+        self.optimizers().step()
         self.log("val_loss", mean_val_loss, prog_bar=True, sync_dist=True)
         batch = self.validation_step_outputs[0]["batch"]
         self._log_figures(batch, log=self.log_wandb)
