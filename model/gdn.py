@@ -12,7 +12,7 @@ from torch.autograd import Function
 class LowerBound(Function):
     @staticmethod
     def forward(ctx, inputs, bound):
-        b = torch.ones(inputs.size(), device=inputs.device)*bound
+        b = torch.ones(inputs.size(), device=inputs.device)*bound.to(inputs.device)
         b = b.to(inputs.device)
         ctx.save_for_backward(inputs, b)
         return torch.max(inputs, b)
@@ -50,11 +50,11 @@ class GDN(nn.Module):
   
     def build(self, ch, device):
         self.pedestal = self.reparam_offset**2
-        self.beta_bound = (self.beta_min + self.reparam_offset**2)**.5
-        self.gamma_bound = self.reparam_offset
+        self.beta_bound = (self.beta_min + self.reparam_offset.to(device)**2)**.5
+        self.gamma_bound = self.reparam_offset.to(device)
 
         # Create beta param
-        beta = torch.sqrt(torch.ones(ch, device=device)+self.pedestal)
+        beta = torch.sqrt(torch.ones(ch, device=device)+self.pedestal.to(device))
         self.beta = nn.Parameter(beta)
 
         # Create gamma param
@@ -70,16 +70,18 @@ class GDN(nn.Module):
             unfold = True
             bs, ch, d, w, h = inputs.size() 
             inputs = inputs.view(bs, ch, d*w, h)
+            
+        device  = inputs.device
 
         _, ch, _, _ = inputs.size()
 
         # Beta bound and reparam
         beta = LowerBound.apply(self.beta, self.beta_bound)
-        beta = beta**2 - self.pedestal 
+        beta = beta.to(device)**2 - self.pedestal.to(device)
 
         # Gamma bound and reparam
-        gamma = LowerBound.apply(self.gamma, self.gamma_bound)
-        gamma = gamma**2 - self.pedestal
+        gamma = LowerBound.apply(self.gamma, self.gamma_bound).to(device)
+        gamma = gamma**2 - self.pedestal.to(device)
         gamma  = gamma.view(ch, ch, 1, 1)
 
         # Norm pool calc

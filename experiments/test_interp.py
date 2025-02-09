@@ -47,7 +47,7 @@ loader = torchdata.DataLoader(
 
 # Load models
 fm: lightning.LightningModule = represent.Represent.load_from_checkpoint(
-    "camels_gdn_time_for_encoding/step=step=22000-val_loss=0.361.ckpt"
+    "camels_gdn_t_res_16x16x1/step=step=13700-val_loss=0.384.ckpt"
 ).to(device)
 fm.eval()
 
@@ -63,7 +63,7 @@ Pk_fin = np.zeros(181)
 img, cosmo = dataset[0]
 img = torch.tensor(img).unsqueeze(0).cuda()
 
-n_sampling_steps = 40
+n_sampling_steps = 190
 t = torch.linspace(0, 1, n_sampling_steps).cuda()
         
 hs = [fm.encoder(img, ts) for ts in t]  # List of tensors
@@ -101,8 +101,7 @@ target_img = gts[-1][2]
 h_linear = []
 # Define latent interpolation ranges and labels
 modulation_ranges = {
-    "Low Frequency Modulation": list(range(0, 8)),
-    "High Frequency Modulation": list(range(8, n_sampling_steps*4)),
+    f"Stage {i}" : list(range(i, (i+1))) for i in range(190)
 }
 
 num_samples_per_stage = 5

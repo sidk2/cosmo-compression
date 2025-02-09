@@ -173,13 +173,13 @@ class Represent(LightningModule):
             ax[0].set_title("x")
             ax[1].set_title("Reconstructed x")
             plt.savefig("cosmo_compression/results/field_reconstruction.png")
-            # log_matplotlib_figure("field_reconstruction")
+            log_matplotlib_figure("field_reconstruction")
             plt.close()
 
     def configure_optimizers(self) -> Dict[str, Any]:
         optimizer = torch.optim.AdamW(self.parameters(), lr=1e-4)
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, patience=12, factor=0.5
+            optimizer, patience=8, factor=0.5
         )
         return {
             "optimizer": optimizer,

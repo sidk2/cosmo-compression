@@ -42,56 +42,63 @@ std = data.NORM_DICT["Mcdm"][256]["std"]
 
 # Load models
 fm: represent.Represent = represent.Represent.load_from_checkpoint(
-    "cosmo_16x16_attend_32ch_16window/step=step=8900-val_loss=0.371.ckpt"
+    "camels_gdn_t_res_16x16x1/step=step=20700-val_loss=0.382.ckpt"
 ).to(device)
 fm.eval()
 
-tot_diff = 0
-ps_diff = 0
+# tot_diff = 0
+# ps_diff = 0
 # Iterate through the DataLoader
-for idx, (params, imgs) in enumerate(data_loader):
-    print(idx)
-    Pk_orig = np.zeros((batch_size, 181))
-    for i, img in enumerate(imgs):
-        y = img.clone().cpu().numpy().squeeze() * std + mean
-        delta_fields_orig_1 = y / np.mean(y) - 1
-        Pk2D = PKL.Pk_plane(delta_fields_orig_1, 25.0, 'None', 1, verbose=False)
-        k_orig = Pk2D.k
-        Pk_orig[i, :] = Pk2D.Pk
+# for idx, (params, imgs) in enumerate(data_loader):
+#     print(idx)
+#     Pk_orig = np.zeros((batch_size, 181))
+#     for i, img in enumerate(imgs):
+#         y = img.clone().cpu().numpy().squeeze() * std + mean
+#         delta_fields_orig_1 = y / np.mean(y) - 1
+#         Pk2D = PKL.Pk_plane(delta_fields_orig_1, 25.0, 'None', 1, verbose=False)
+#         k_orig = Pk2D.k
+#         Pk_orig[i, :] = Pk2D.Pk
 
-    imgs = imgs.cuda()  # Move batch to GPU
+#     imgs = imgs.cuda()  # Move batch to GPU
 
 
-    # Encode the batch of images
-    latents = fm.encoder(imgs)
+#     # Encode the batch of images
+#     latents = fm.encoder(imgs)
 
-    # Generate predictions in batch
-    preds = fm.decoder.predict(x0=torch.randn_like(imgs), h=latents)
+#     # Generate predictions in batch
+#     preds = fm.decoder.predict(x0=torch.randn_like(imgs), h=latents)
 
-    Pk_pred = np.zeros((batch_size, 181))
-    for i, img in enumerate(preds):
-        y_pred = img.clone().cpu().numpy().squeeze() * std + mean
-        delta_fields_pred_1 = y_pred / np.mean(y_pred) - 1
-        Pk2D_pred = PKL.Pk_plane(delta_fields_pred_1, 25.0, 'None', 1, verbose=False)
-        k_pred = Pk2D_pred.k
-        Pk_pred[i, :] = Pk2D_pred.Pk
+#     Pk_pred = np.zeros((batch_size, 181))
+#     for i, img in enumerate(preds):
+#         y_pred = img.clone().cpu().numpy().squeeze() * std + mean
+#         delta_fields_pred_1 = y_pred / np.mean(y_pred) - 1
+#         Pk2D_pred = PKL.Pk_plane(delta_fields_pred_1, 25.0, 'None', 1, verbose=False)
+#         k_pred = Pk2D_pred.k
+#         Pk_pred[i, :] = Pk2D_pred.Pk
 
-    # Calculate differences for the batch
-    batch_diff = (imgs.cpu().numpy()[:, 0, :, :] - preds.cpu().numpy()[:, 0, :, :]) * std
+#     # Calculate differences for the batch
+#     batch_diff = (imgs.cpu().numpy()[:, 0, :, :] - preds.cpu().numpy()[:, 0, :, :]) * std
 
-    # Accumulate the differences
-    tot_diff += np.sum(np.abs(batch_diff))
-    ps_diff += np.sum(np.abs(Pk_pred - Pk_orig))
+#     # Accumulate the differences
+#     tot_diff += np.sum(np.abs(batch_diff))
+#     ps_diff += np.sum(np.abs(Pk_pred - Pk_orig))
 
-print(tot_diff / 256/256/400)
-print(ps_diff / 400 / 181)
+# print(tot_diff / 256/256/400)
+# print(ps_diff / 400 / 181)
 
-cosmo, img = dataset[0]
+img, cosmo = dataset[0]
 img = torch.tensor(img).unsqueeze(0).cuda()
 
-latents = fm.encoder(img)
 
-pred = fm.decoder.predict(x0=torch.randn_like(img), h=latents)
+n_sampling_steps = 100
+t = torch.linspace(0, 1, n_sampling_steps).cuda()
+        
+hs = [fm.encoder(img, ts) for ts in t]  # List of tensors
+h = torch.cat(hs, dim=1)
+
+x0 = torch.randn((1, 1, 256, 256), device="cuda")
+
+pred = fm.decoder.predict(x0.cuda(), t=1, h=h, n_sampling_steps=n_sampling_steps)
 # num_repeats = 5
 
 # # Extract the last entry along the desired dimension (assuming the first dimension here)
@@ -123,60 +130,61 @@ pred = fm.decoder.predict(x0=torch.randn_like(img), h=latents)
 
 # Pre-compute the original power spectrum
 y = img.cpu().numpy().squeeze() * std + mean
-delta_fields_orig_1 = y / np.mean(y) - 1
-Pk2D = PKL.Pk_plane(delta_fields_orig_1, 25.0, "None", 1, verbose=False)
-k_orig = Pk2D.k
-Pk_orig = Pk2D.Pk
+# delta_fields_orig_1 = y / np.mean(y) - 1
+# Pk2D = PKL.Pk_plane(delta_fields_orig_1, 25.0, "None", 1, verbose=False)
+# k_orig = Pk2D.k
+# Pk_orig = Pk2D.Pk
 
 pred = pred.detach().cpu().numpy()[0,0,:,:]*std+mean
-delta_fields_pred_1 = pred / np.mean(pred) - 1
-Pk2D = PKL.Pk_plane(delta_fields_pred_1, 25.0, "None", 1, verbose=False)
-k_pred = Pk2D.k
-Pk_pred = Pk2D.Pk
+# delta_fields_pred_1 = pred / np.mean(pred) - 1
+# Pk2D = PKL.Pk_plane(delta_fields_pred_1, 25.0, "None", 1, verbose=False)
+# k_pred = Pk2D.k
+# Pk_pred = Pk2D.Pk
 
 # Initialize the figure and axes
-fig, axs = plt.subplots(2, 2, figsize=(12, 10))
+fig, axs = plt.subplots(1, 2, figsize=(10, 5))
 
 # Original Image
-ax1 = axs[0, 0]
+ax1 = axs[0]
 img1 = ax1.imshow(y, cmap="viridis", origin="lower")
 ax1.set_title("Original Image")
 ax1.axis("off")
 plt.colorbar(img1, ax=ax1, label="Density")
 
 # Predicted Image
-ax2 = axs[0, 1]
-img2 = ax2.imshow(y, cmap="viridis", origin="lower")
+ax2 = axs[1]
+img2 = ax2.imshow(pred, cmap="viridis", origin="lower")
 ax2.set_title("Reconstructed Image")
 ax2.axis("off")
 plt.colorbar(img2, ax=ax2, label="Density")
 
-# Power Spectra
-ax3 = axs[1, 0]
-line_orig, = ax3.plot(k_orig, Pk_orig, label="Original")
-line_pred, = ax3.plot(k_pred, Pk_pred, label="Reconstructed")
-ax3.set_xscale("log")
-ax3.set_yscale("log")
-ax3.set_title("Power Spectra")
-ax3.set_xlabel("Wavenumber $k\,[h/Mpc]$")
-ax3.set_ylabel("$P(k)\,[(Mpc/h)^2]$")
-ax3.legend()
+# # Power Spectra
+# ax3 = axs[1, 0]
+# line_orig, = ax3.plot(k_orig, Pk_orig, label="Original")
+# line_pred, = ax3.plot(k_pred, Pk_pred, label="Reconstructed")
+# ax3.set_xscale("log")
+# ax3.set_yscale("log")
+# ax3.set_title("Power Spectra")
+# ax3.set_xlabel("Wavenumber $k\,[h/Mpc]$")
+# ax3.set_ylabel("$P(k)\,[(Mpc/h)^2]$")
+# ax3.legend()
 
-# Difference Image
-ax4 = axs[1, 1]
-img3 = ax4.imshow(y-pred, cmap="seismic", origin="lower", vmin=-1, vmax=1)
-ax4.set_title("Error Map")
-ax4.axis("off")
-plt.colorbar(img3, ax=ax4, label="Difference")
+# # Difference Image
+# ax4 = axs[1, 1]
+# img3 = ax4.imshow(y-pred, cmap="seismic", origin="lower", vmin=-1, vmax=1)
+# ax4.set_title("Error Map")
+# ax4.axis("off")
+# plt.colorbar(img3, ax=ax4, label="Difference")
 
-# Adjust layout
-plt.tight_layout()
+# # Adjust layout
+# plt.tight_layout()
 
-# Create the animation
-# anim = FuncAnimation(fig, update_plot, frames=len(pred), blit=True)
+# # Create the animation
+# # anim = FuncAnimation(fig, update_plot, frames=len(pred), blit=True)
 
-# Save or display the animation
+# # Save or display the animation
+plt.imsave('cosmo_compression/results/image.png', img.detach().cpu().numpy()[0,0,:,:], cmap='viridis')
 plt.savefig("cosmo_compression/results/mae.png")
-# Alternatively, display in a Jupyter Notebook
-# from IPython.display import HTML
-# HTML(anim.to_jshtml())
+# # Alternatively, display in a Jupyter Notebook
+# # from IPython.display import HTML
+# # HTML(anim.to_jshtml())

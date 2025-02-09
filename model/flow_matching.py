@@ -29,11 +29,11 @@ class ConditionedVelocityModel(nn.Module):
         **kwargs,
     ) -> torch.Tensor:
         """Overloads forward method of nn.Module"""
-        index = (t*(len(self.time_steps)-1)).floor().int().item()*4
+        index = (t*(len(self.time_steps)-1)).floor().int().item()
         return (
-            -1 * self.velocity_model(x, t, z=(self.h[:, index:index+4, : , :]))
+            -1 * self.velocity_model(x, t, z=(self.h[:, index:index+1, : , :]))
             if self.reverse
-            else self.velocity_model(x, t, z=(self.h[:, index:index+4, : , :]))
+            else self.velocity_model(x, t, z=(self.h[:, index:index+1, : , :]))
         )
 
 
@@ -121,7 +121,7 @@ class FlowMatching(nn.Module):
         )
         node = NeuralODE(
             conditional_velocity_model,
-            solver="dopri5",
+            solver="euler",
             sensitivity="adjoint",
         )
         t = torch.linspace(0, 1, n_sampling_steps)
