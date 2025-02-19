@@ -110,7 +110,7 @@ class Represent(LightningModule):
         y, cosmo = batch
         # Train representation
         t = torch.rand((y.shape[0]), device = y.device)
-        h = self.encoder(y, t) if not self.unconditional else None
+        h = self.encoder(y) if not self.unconditional else None
         x0 = torch.randn_like(y)
         decoder_loss = self.decoder.compute_loss(
             x0=x0,
@@ -152,16 +152,11 @@ class Represent(LightningModule):
         log=True,
     ) -> None:
         y, cosmo = batch
-        t = torch.linspace(0, 1, 50).cuda()
-        
-        hs = [self.encoder(y, ts) if not self.unconditional else None for ts in t]  # List of tensors
-        h = torch.cat(hs, dim=1)
-        
+        h = self.encoder(y) if not self.unconditional else None
         x0 = torch.randn_like(y)
         pred = self.decoder.predict(
             x0,
             h=h,
-            t=t,
             n_sampling_steps=50,
         )
         if log:
@@ -177,7 +172,7 @@ class Represent(LightningModule):
             plt.close()
 
     def configure_optimizers(self) -> Dict[str, Any]:
-        optimizer = torch.optim.AdamW(self.parameters(), lr=1e-4)
+        optimizer = torch.optim.AdamW(self.parameters(), lr=5e-5)
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer, patience=8, factor=0.5
         )

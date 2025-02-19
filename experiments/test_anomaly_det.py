@@ -17,13 +17,15 @@ cdm_params_path = os.path.join(save_dir, "cdm_params.npy")
 wdm_latents_path = os.path.join(save_dir, "wdm_latents.npy")
 wdm_params_path = os.path.join(save_dir, "wdm_params.npy")
 
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"
+
+
 # Load model
-fm = represent.Represent.load_from_checkpoint("camels_gdn_t_res_16x16x1/step=step=20700-val_loss=0.382.ckpt").cuda()
-fm.eval()
+# fm = represent.Represent.load_from_checkpoint("basic_latent_64/step=step=8000-val_loss=0.305.ckpt").cuda()
+# fm.eval()
 
 # Set sampling parameters
-n_sampling_steps = 50
-t = torch.linspace(0, 1, n_sampling_steps).cuda()
+# n_sampling_steps = 50
 
 # Function to compute latents
 def compute_latents(dataset, is_cdm=True):
@@ -31,11 +33,10 @@ def compute_latents(dataset, is_cdm=True):
     for i, (data, cosmo) in tqdm.tqdm(enumerate(dataset)):
         with torch.no_grad():
             data = torch.tensor(data).unsqueeze(0).cuda()
-            hs = [fm.encoder(data, ts) for ts in t]
-            latent = torch.cat(hs, dim=1)
-            latents.append(latent.cpu().numpy())
-            params.append(cosmo)
-    return np.array(latents).squeeze(), np.array(params).squeeze()
+            # latent = fm.encoder(data)
+            latents.append(data.cpu().numpy())
+            params.append(np.append(cosmo, 0.0 if is_cdm else 1.0))
+    return np.array(latents), np.array(params)
 
 # Load or compute CDM latents
 if os.path.exists(cdm_latents_path) and os.path.exists(cdm_params_path):
@@ -67,21 +68,24 @@ else:
 class CNNClassifier(nn.Module):
     def __init__(self):
         super(CNNClassifier, self).__init__()
-        self.conv1 = nn.Conv2d(n_sampling_steps, 32, kernel_size=3, padding=1)
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
-        # self.conv3 = nn.Conv2d(64, 128, kernel_size=3, padding=1)
-        self.pool = nn.MaxPool2d(2, 2)
-        self.fc1 = nn.Linear(256 * 4 * 4, 256)
-        self.fc2 = nn.Linear(256, 2)  # Output: CDM or WDM
-        self.relu = nn.ReLU()
+        self.conv1 = nn.Conv2d(1, 256, kernel_size=3, padding=1)
+        # self.conv2 = nn.Conv2d(128, 256, kernel_size=3, padding=1)
+        # self.conv3 = nn.Conv2d(64, 256, kernel_size=3, padding=1)
+        self.pool = nn.AdaptiveAvgPool2d((1,1))
+        self.fc = nn.Sequential(
+            nn.Linear(256, 2304),
+            nn.ReLU(),
+            nn.Linear(2304, 2304),
+            nn.ReLU(),
+            nn.Linear(2304, 2304),
+            nn.ReLU(),
+            nn.Linear(2304, 1)
+        )
     
     def forward(self, x):
-        x = self.relu(self.conv1(x))
-        x = self.pool(self.relu(self.conv2(x)))
-        # x = self.pool(self.relu(self.conv3(x)))
+        x = self.pool(self.conv1(x))
         x = x.view(x.shape[0], -1)  # Flatten
-        x = self.relu(self.fc1(x))
-        x = self.fc2(x)
+        x = self.fc(x)
         return x
 
 # Prepare dataset
@@ -101,18 +105,18 @@ val_size = int(0.1 * len(dataset))
 test_size = len(dataset) - train_size - val_size
 train_dataset, val_dataset, test_dataset = random_split(dataset, [train_size, val_size, test_size])
 
-train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
-val_loader = DataLoader(val_dataset, batch_size=64, shuffle=False)
-test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False)
+train_loader = DataLoader(train_dataset, batch_size=256, shuffle=True)
+val_loader = DataLoader(val_dataset, batch_size=256, shuffle=False)
+test_loader = DataLoader(test_dataset, batch_size=256, shuffle=False)
 
 # Initialize model, loss, and optimizer
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = CNNClassifier().to(device)
-criterion = nn.CrossEntropyLoss()
-optimizer = optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-5)
+criterion = nn.BCEWithLogitsLoss()
+optimizer = optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-6)
 
 # Training loop
-num_epochs = 20
+num_epochs = 100
 best_val_loss = float('inf')
 best_model_state = None
 
@@ -120,10 +124,10 @@ for epoch in range(num_epochs):
     model.train()
     running_loss = 0.0
     for inputs, labels in train_loader:
-        inputs, labels = inputs.to(device), labels.to(device)
+        inputs, labels = inputs.to(device).squeeze(1).squeeze(1), labels.to(device)
         optimizer.zero_grad()
-        outputs = model(inputs.squeeze())
-        loss = criterion(outputs, labels)
+        outputs = model(inputs)
+        loss = criterion(outputs, labels.unsqueeze(1).float())
         loss.backward()
         optimizer.step()
         running_loss += loss.item()
@@ -132,9 +136,9 @@ for epoch in range(num_epochs):
     val_loss = 0.0
     with torch.no_grad():
         for inputs, labels in val_loader:
-            inputs, labels = inputs.to(device), labels.to(device)
-            outputs = model(inputs.squeeze())
-            loss = criterion(outputs, labels)
+            inputs, labels = inputs.to(device).squeeze(1).squeeze(1), labels.to(device)
+            outputs = model(inputs)
+            loss = criterion(outputs, labels.unsqueeze(1).float())
             val_loss += loss.item()
     
     val_loss /= len(val_loader)
@@ -152,13 +156,119 @@ model.eval()
 correct, total = 0, 0
 with torch.no_grad():
     for inputs, labels in test_loader:
-        inputs, labels = inputs.to(device), labels.to(device)
-        outputs = model(inputs.squeeze())
-        _, predicted = torch.max(outputs, 1)
+        inputs, labels = inputs.to(device).squeeze(1).squeeze(1), labels.to(device)
+        outputs = model(inputs)
+        predicted = (outputs > 0.5).long()
         total += labels.size(0)
-        correct += (predicted == labels).sum().item()
-
+        correct += (predicted.squeeze() == labels).nonzero().size(0)
 print(f"Test Accuracy: {100 * correct / total:.2f}%")
 
 # Load best model
 print("Loaded best model based on validation loss.")
+
+
+class ParameterEstimator(nn.Module):
+    def __init__(self, input_dim, output_dim):
+        super(ParameterEstimator, self).__init__()
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc = nn.Sequential(
+            nn.Linear(input_dim, 512),
+            nn.ReLU(),
+            nn.Linear(512, 512),
+            nn.ReLU(),
+            nn.Linear(512, 512),
+            nn.ReLU(),
+            nn.Linear(512, output_dim)
+        )
+    
+    def forward(self, x):
+        x = self.pool(x)
+        x = x.view(x.shape[0], -1)  # Flatten
+        x = self.fc(x)
+        return x
+
+# Prepare dataset for parameter estimation
+X_param = cdm_latents
+y_param = cdm_params[:, 0:2]
+
+# Convert to tensors
+X_param_tensor = torch.tensor(X_param, dtype=torch.float32).unsqueeze(1)  # Add channel dim
+y_param_tensor = torch.tensor(y_param, dtype=torch.float32)
+
+param_dataset = TensorDataset(X_param_tensor, y_param_tensor)
+param_train_size = int(0.8 * len(param_dataset))
+param_val_size = int(0.1 * len(param_dataset))
+param_test_size = len(param_dataset) - param_train_size - param_val_size
+param_train_dataset, param_val_dataset, param_test_dataset = random_split(param_dataset, [param_train_size, param_val_size, param_test_size])
+
+param_train_loader = DataLoader(param_train_dataset, batch_size=256, shuffle=True)
+param_val_loader = DataLoader(param_val_dataset, batch_size=256, shuffle=False)
+param_test_loader = DataLoader(param_test_dataset, batch_size=256, shuffle=False)
+
+# Initialize parameter estimation model, loss, and optimizer
+param_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+param_model = ParameterEstimator(input_dim=64, output_dim=y_param.shape[1]).to(param_device)
+param_criterion = nn.MSELoss()
+param_optimizer = optim.Adam(param_model.parameters(), lr=1e-5, weight_decay=1e-6)
+
+# Training loop
+num_epochs = 100
+best_val_loss = float('inf')
+best_param_model_state = None
+
+for epoch in range(num_epochs):
+    param_model.train()
+    running_loss = 0.0
+    for inputs, labels in param_train_loader:
+        inputs, labels = inputs.to(param_device), labels.to(param_device)
+        param_optimizer.zero_grad()
+        outputs = param_model(inputs.squeeze())
+        loss = param_criterion(outputs, labels)
+        loss.backward()
+        param_optimizer.step()
+        running_loss += loss.item()
+    
+    param_model.eval()
+    val_loss = 0.0
+    with torch.no_grad():
+        for inputs, labels in param_val_loader:
+            inputs, labels = inputs.to(param_device), labels.to(param_device)
+            outputs = param_model(inputs.squeeze())
+            loss = param_criterion(outputs, labels)
+            val_loss += loss.item()
+    
+    val_loss /= len(param_val_loader)
+    if val_loss < best_val_loss:
+        best_val_loss = val_loss
+        best_param_model_state = param_model.state_dict()
+    
+    print(f"Epoch {epoch+1}, Loss: {running_loss / len(param_train_loader)}, Val Loss: {val_loss}")
+    
+import matplotlib.pyplot as plt
+
+# Get the predicted and true parameter values
+param_model.eval()
+predicted_params = []
+true_params = []
+with torch.no_grad():
+    for inputs, labels in param_test_loader:
+        inputs, labels = inputs.to(param_device), labels.to(param_device)
+        outputs = param_model(inputs)
+        predicted_params.extend(outputs.cpu().numpy())
+        true_params.extend(labels.cpu().numpy())
+
+# Create a figure with multiple subplots
+fig, axs = plt.subplots(nrows=len(true_params[0]), figsize=(8, 6*len(true_params[0])))
+
+# Plot the predicted vs. true parameter value for each parameter
+for i in range(len(true_params[0])):
+    axs[i].scatter(true_params, predicted_params, label=f'Parameter {i+1}')
+    axs[i].set_xlabel('True parameter value')
+    axs[i].set_ylabel('Predicted parameter value')
+    axs[i].legend()
+
+# Layout so plots do not overlap
+fig.tight_layout()
+
+# Save the figure
+plt.savefig('cosmo_compression/results/predicted_vs_true_params.png')

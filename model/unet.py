@@ -25,7 +25,7 @@ class AdaGN(nn.Module):
         t_b: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Overloads forward method of nn.Module"""
-        return self.gn(x)
+        return t_s[:, :, None, None] * self.gn(x) + t_b[:, :, None, None]
 
 class SelfAttention(nn.Module):
     """Implementation of a self-attention module"""
@@ -442,11 +442,25 @@ class UNet(nn.Module):
         z is the full latent, which will be split into latent_dim chunks
         """
         t = t.unsqueeze(-1)
+        
+        mask_indices = (t*self.num_latent_channels).floor().long()
+        
+        B, C, H, W = z.shape
+
+        # Create a mask of shape (B, C)
+        mask = torch.arange(C, device=x.device).repeat(B, 1) < mask_indices.repeat(1, C)  # Shape: (B, C)
+        
+        mask = mask.float()  # Convert to float for multiplication
+
+        mask = mask.view(B, C, 1, 1)
+
         t = self.pos_encoding(t, self.time_dim)
         
         latent_img = z
         for layer in self.latent_upsampler:
             latent_img = layer(latent_img, t)
+            
+        latent_img = latent_img * mask
 
         x1 = self.inc(x, t)
 

@@ -129,7 +129,6 @@ class CAMELS(VisionDataset):
             "A_SN2",
             "A_AGN1",
             "A_AGN2",
-            "Omega_b",
         ],
     ):
         """Internal function to load parameters from CMD"""

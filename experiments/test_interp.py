@@ -16,7 +16,6 @@ import tqdm
 
 from cosmo_compression.data import data
 from cosmo_compression.model import represent
-from cosmo_compression.parameter_estimation import inference
 
 torch.manual_seed(42)
 
@@ -28,7 +27,6 @@ MAP_RESOLUTION = 256
 mean = data.NORM_DICT[MAP_TYPE][MAP_RESOLUTION]["mean"]
 std = data.NORM_DICT[MAP_TYPE][MAP_RESOLUTION]["std"]
 
-param_est_path: str = "cosmo_compression/parameter_estimation/data/best_model_64ch.pth"
 device: str = "cuda" if torch.cuda.is_available() else "cpu"
 
 dataset: torchdata.Dataset = data.CAMELS(
@@ -45,29 +43,21 @@ loader = torchdata.DataLoader(
     pin_memory=True,
 )
 
-# Load models
-fm: lightning.LightningModule = represent.Represent.load_from_checkpoint(
-    "camels_gdn_t_res_16x16x1/step=step=13700-val_loss=0.384.ckpt"
-).to(device)
+fm = represent.Represent.load_from_checkpoint("growing_latent_64/step=step=8900-val_loss=0.322.ckpt").to(device)
 fm.eval()
-
-param_est: nn.Module = inference.ParamMLP(
-    input_dim=2304, hidden_widths=[1000, 1000, 256], output_dim=2
-).to(device)
-param_est.load_state_dict(torch.load(param_est_path))
 
 gts = []
 Pk_orig = np.zeros(181)
 Pk_fin = np.zeros(181)
 
-img, cosmo = dataset[0]
+img, cosmo = dataset[60]
 img = torch.tensor(img).unsqueeze(0).cuda()
 
-n_sampling_steps = 190
+n_sampling_steps = 50
 t = torch.linspace(0, 1, n_sampling_steps).cuda()
         
-hs = [fm.encoder(img, ts) for ts in t]  # List of tensors
-h = torch.cat(hs, dim=1)
+h = fm.encoder(img)
+print(h.shape)
 
 gts.append((cosmo, img * std + mean, h))
 y = img.cpu().numpy().squeeze() * std + mean
@@ -76,11 +66,10 @@ Pk2D = PKL.Pk_plane(delta_fields_orig_1, 25.0, "None", 1, verbose=False)
 k_orig = Pk2D.k
 Pk_orig = Pk2D.Pk
 
-img, cosmo = dataset[60]
+img, cosmo = dataset[0]
 img = torch.tensor(img).unsqueeze(0).cuda()
 
-hs = [fm.encoder(img, ts) for ts in t]  # List of tensors
-h = torch.cat(hs, dim=1)
+h = fm.encoder(img) 
 
 gts.append((cosmo, img * std + mean, h))
 
@@ -101,7 +90,14 @@ target_img = gts[-1][2]
 h_linear = []
 # Define latent interpolation ranges and labels
 modulation_ranges = {
-    f"Stage {i}" : list(range(i, (i+1))) for i in range(190)
+    f"Stage {0}" : range(56, 64),
+    f"Stage {1}" : range(48, 56),
+    f"Stage {2}" : range(40, 48),
+    f"Stage {3}" : range(32, 40),
+    f"Stage {4}" : range(24, 32),
+    f"Stage {5}" : range(16, 24),
+    f"Stage {6}" : range(8, 16),
+    f"Stage {7}" : range(0, 8),
 }
 
 num_samples_per_stage = 5
@@ -153,7 +149,7 @@ for i, latent_interpolation in tqdm.tqdm(enumerate(all_interpolations)):
     Pk_samples = []  # To store power spectra for each x0
 
     for x0 in x0_samples:
-        pred = fm.decoder.predict(x0.cuda(), t=1, h=latent_interpolation, n_sampling_steps=n_sampling_steps)
+        pred = fm.decoder.predict(x0.cuda(), h=latent_interpolation, n_sampling_steps=n_sampling_steps)
         preds.append(pred.cpu().numpy()[0, 0, :, :])
         
         # Compute power spectrum for this sample

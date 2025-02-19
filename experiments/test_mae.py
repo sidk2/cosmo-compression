@@ -41,9 +41,7 @@ mean = data.NORM_DICT["Mcdm"][256]["mean"]
 std = data.NORM_DICT["Mcdm"][256]["std"]
 
 # Load models
-fm: represent.Represent = represent.Represent.load_from_checkpoint(
-    "camels_gdn_t_res_16x16x1/step=step=20700-val_loss=0.382.ckpt"
-).to(device)
+fm = represent.Represent.load_from_checkpoint("growing_latent_64/step=step=8900-val_loss=0.322.ckpt").to(device)
 fm.eval()
 
 # tot_diff = 0
@@ -93,12 +91,11 @@ img = torch.tensor(img).unsqueeze(0).cuda()
 n_sampling_steps = 100
 t = torch.linspace(0, 1, n_sampling_steps).cuda()
         
-hs = [fm.encoder(img, ts) for ts in t]  # List of tensors
-h = torch.cat(hs, dim=1)
+h = fm.encoder(img)
 
 x0 = torch.randn((1, 1, 256, 256), device="cuda")
 
-pred = fm.decoder.predict(x0.cuda(), t=1, h=h, n_sampling_steps=n_sampling_steps)
+pred = fm.decoder.predict(x0.cuda(), h=h, n_sampling_steps=n_sampling_steps)
 # num_repeats = 5
 
 # # Extract the last entry along the desired dimension (assuming the first dimension here)
@@ -129,58 +126,58 @@ pred = fm.decoder.predict(x0.cuda(), t=1, h=h, n_sampling_steps=n_sampling_steps
 #     return img1, img2, img3, line_orig, line_pred
 
 # Pre-compute the original power spectrum
-y = img.cpu().numpy().squeeze() * std + mean
-# delta_fields_orig_1 = y / np.mean(y) - 1
-# Pk2D = PKL.Pk_plane(delta_fields_orig_1, 25.0, "None", 1, verbose=False)
-# k_orig = Pk2D.k
-# Pk_orig = Pk2D.Pk
+y = img.cpu().numpy()[0,0,:,:] * std + mean
+delta_fields_orig_1 = y / np.mean(y) - 1
+Pk2D = PKL.Pk_plane(delta_fields_orig_1, 25.0, "None", 1, verbose=False)
+k_orig = Pk2D.k
+Pk_orig = Pk2D.Pk
 
 pred = pred.detach().cpu().numpy()[0,0,:,:]*std+mean
-# delta_fields_pred_1 = pred / np.mean(pred) - 1
-# Pk2D = PKL.Pk_plane(delta_fields_pred_1, 25.0, "None", 1, verbose=False)
-# k_pred = Pk2D.k
-# Pk_pred = Pk2D.Pk
+delta_fields_pred_1 = pred / np.mean(pred) - 1
+Pk2D = PKL.Pk_plane(delta_fields_pred_1, 25.0, "None", 1, verbose=False)
+k_pred = Pk2D.k
+Pk_pred = Pk2D.Pk
 
 # Initialize the figure and axes
-fig, axs = plt.subplots(1, 2, figsize=(10, 5))
+fig, axs = plt.subplots(2, 2, figsize=(10, 10))
 
 # Original Image
-ax1 = axs[0]
+ax1 = axs[0, 0]
 img1 = ax1.imshow(y, cmap="viridis", origin="lower")
 ax1.set_title("Original Image")
 ax1.axis("off")
 plt.colorbar(img1, ax=ax1, label="Density")
 
 # Predicted Image
-ax2 = axs[1]
+ax2 = axs[0, 1]
 img2 = ax2.imshow(pred, cmap="viridis", origin="lower")
 ax2.set_title("Reconstructed Image")
 ax2.axis("off")
 plt.colorbar(img2, ax=ax2, label="Density")
 
 # # Power Spectra
-# ax3 = axs[1, 0]
-# line_orig, = ax3.plot(k_orig, Pk_orig, label="Original")
-# line_pred, = ax3.plot(k_pred, Pk_pred, label="Reconstructed")
-# ax3.set_xscale("log")
-# ax3.set_yscale("log")
-# ax3.set_title("Power Spectra")
-# ax3.set_xlabel("Wavenumber $k\,[h/Mpc]$")
-# ax3.set_ylabel("$P(k)\,[(Mpc/h)^2]$")
-# ax3.legend()
+ax3 = axs[1, 0]
+line_orig, = ax3.plot(k_orig, Pk_orig, label="Original")
+line_pred, = ax3.plot(k_pred, Pk_pred, label="Reconstructed")
+ax3.set_xscale("log")
+ax3.set_yscale("log")
+ax3.set_title("Power Spectra")
+ax3.set_xlabel("Wavenumber $k\,[h/Mpc]$")
+ax3.set_ylabel("$P(k)\,[(Mpc/h)^2]$")
+ax3.legend()
 
-# # Difference Image
-# ax4 = axs[1, 1]
-# img3 = ax4.imshow(y-pred, cmap="seismic", origin="lower", vmin=-1, vmax=1)
-# ax4.set_title("Error Map")
-# ax4.axis("off")
-# plt.colorbar(img3, ax=ax4, label="Difference")
+# Difference Image
+ax4 = axs[1, 1]
+img3 = ax4.imshow(y-pred, cmap="seismic", origin="lower", vmin=-1, vmax=1)
+ax4.set_title("Error Map")
+ax4.axis("off")
+plt.colorbar(img3, ax=ax4, label="Difference")
 
-# # Adjust layout
-# plt.tight_layout()
+# Adjust layout
+plt.tight_layout()
 
-# # Create the animation
-# # anim = FuncAnimation(fig, update_plot, frames=len(pred), blit=True)
+# Create the animation
+# anim = FuncAnimation(fig, update_plot, frames=len(pred), blit=True)
 
 # # Save or display the animation
 plt.imsave('cosmo_compression/results/image.png', img.detach().cpu().numpy()[0,0,:,:], cmap='viridis')

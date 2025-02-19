@@ -12,7 +12,6 @@ class ResnetBlock(nn.Module):
     def __init__(self, in_channels: int, out_channels: int, stride: int):
         super(ResnetBlock, self).__init__()
         
-        self.t_emb_dim = out_channels
         self.convs = nn.ModuleList(
             [
                 nn.Conv2d(
@@ -32,19 +31,12 @@ class ResnetBlock(nn.Module):
             ]
         )
         
-        self.time_layers = nn.ModuleList(
-            [
-                nn.Linear(in_features=out_channels, out_features=out_channels),
-                nn.Linear(in_features=out_channels, out_features=out_channels),
-            ]
-        )
         self.batch_norms = nn.ModuleList(
             [
                 nn.BatchNorm2d(out_channels),
                 nn.BatchNorm2d(out_channels),
             ]
         )
-        # self.downsample = nn.Sequential()
         if stride != 1 or in_channels != out_channels:
             self.shortcut = nn.Sequential(
                 nn.Conv2d(
@@ -52,41 +44,14 @@ class ResnetBlock(nn.Module):
                 ),
                 nn.BatchNorm2d(out_channels),
             )
-    def pos_encoding(self, t: int, channels: int) -> torch.Tensor:
-        """Generate sinusoidal timestep embedding"""
-        device = (
-            torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-        )
-        if channels == 1:
-            t = t.view(-1, 1).repeat(1, max(1,channels // 2))
-            inv_freq = 1.0 / (
-                10000 ** (torch.arange(0, channels, 2, device=device).float() / channels)
-            )
-            pos_enc_a = torch.sin(t * inv_freq)
-            return pos_enc_a
-        
-        t = t.view(-1, 1).repeat(1, max(1,channels // 2))
-        inv_freq = 1.0 / (
-            10000 ** (torch.arange(0, channels, 2, device=device).float() / channels)
-        )
-        pos_enc_a = torch.sin(t * inv_freq)
-        pos_enc_b = torch.cos(t * inv_freq)
-        pos_enc = torch.cat([pos_enc_a, pos_enc_b], dim=-1)
-        return pos_enc
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass"""
-        x, t = x
         
-        t_enc = self.pos_encoding(t, channels=self.t_emb_dim)
-        
-        t_emb_1 = self.time_layers[0](t_enc)
-        t_emb_2 = self.time_layers[1](t_enc)
-        
-        logits = self.convs[0](x) * t_emb_1.unsqueeze(-1).unsqueeze(-1)
+        logits = self.convs[0](x)
         logits = self.batch_norms[0](logits)
         logits = F.relu(logits)
-        logits = self.convs[1](logits) * t_emb_2.unsqueeze(-1).unsqueeze(-1)
+        logits = self.convs[1](logits)
         logits = self.batch_norms[1](logits)
         logits = F.relu(logits)
         return logits
@@ -134,10 +99,10 @@ class ResNet(nn.Module):
             layers.append(ResnetBlock(in_channels, out_channels, stride))
         return nn.Sequential(*layers)
     
-    def forward(self, x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Overloads forward method of nn.Module"""
         x = self.in_layer(x)
         # print("latent: ", x)
         for i, layer in enumerate(self.resnet_layers):
-            x = layer((x, t))
+            x = layer(x)
         return x
