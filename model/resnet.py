@@ -5,6 +5,21 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+import torchvision.transforms as T
+
+def downscale_tensor(y, r):
+    B, C, H, W = y.shape
+    P = int(256 / r)
+    N = r
+    patches = y.unfold(2, P, P).unfold(3, P, P)
+
+    # Step 2: Reshape to stack patches channel-wise
+    # patches shape: (1, 1, num_patches_h, num_patches_w, P, P)
+    # We want to stack them along the channel dimension
+
+    y_hat = patches.contiguous().view(B, -1, P, P)
+    
+    return y_hat
 
 class ResnetBlock(nn.Module):
     """Basic building block for ResNet"""
@@ -60,7 +75,7 @@ class ResnetBlock(nn.Module):
 class ResNet(nn.Module):
     """Residual convolutional network (ResNet 18 architecture)"""
 
-    def __init__(self, in_channels: int, latent_dim: int, latent_img_channels: int = 32,):
+    def __init__(self, in_channels: int, latent_img_channels: int = 32, blur_kernel_size = 1, downsampling_factor = 16):
         super(ResNet, self).__init__()
         # CAMELS Multifield Dataset is 256x256
         self.in_channels = 64
@@ -79,6 +94,7 @@ class ResNet(nn.Module):
                 nn.MaxPool2d(kernel_size=3, stride=2, padding=1),
             
         )
+        self.blur = T.GaussianBlur(kernel_size=blur_kernel_size, sigma=blur_kernel_size / 3)
         self.resnet_layers = nn.ModuleList(
             [
                 self._make_layer(in_channels=64, out_channels=64, num_blocks=1, stride=1),
@@ -101,8 +117,27 @@ class ResNet(nn.Module):
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Overloads forward method of nn.Module"""
-        x = self.in_layer(x)
+        x = self.in_layer(self.blur(x))
         # print("latent: ", x)
         for i, layer in enumerate(self.resnet_layers):
             x = layer(x)
         return x
+    
+class ResNetEncoder(nn.Module):
+    """Residual convolutional network (ResNet 18 architecture)"""
+
+    def __init__(self, in_channels: int, latent_img_channels: int = 32,):
+        super(ResNetEncoder, self).__init__()
+        self.resnet_list = nn.ModuleList(
+            [
+                ResNet(in_channels=in_channels, latent_img_channels=latent_img_channels, blur_kernel_size = 1),
+                ResNet(in_channels=in_channels, latent_img_channels=latent_img_channels, blur_kernel_size = 5),
+                ResNet(in_channels=in_channels, latent_img_channels=latent_img_channels, blur_kernel_size = 7),
+                ResNet(in_channels=in_channels, latent_img_channels=latent_img_channels, blur_kernel_size = 11),
+            ]
+        )
+        
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Overloads forward method of nn.Module"""
+        return torch.cat([layer(x) for layer in self.resnet_list], dim=1)

@@ -10,6 +10,8 @@ import Pk_library as PKL
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
+import torchvision.transforms as T
+
 
 import lightning
 from torch.utils.data import DataLoader
@@ -41,7 +43,7 @@ mean = data.NORM_DICT["Mcdm"][256]["mean"]
 std = data.NORM_DICT["Mcdm"][256]["std"]
 
 # Load models
-fm = represent.Represent.load_from_checkpoint("growing_latent_64/step=step=8900-val_loss=0.322.ckpt").to(device)
+fm = represent.Represent.load_from_checkpoint("curriculum_learning_multi_model/phase_1/step=step=5400-val_loss=0.294.ckpt").to(device)
 fm.eval()
 
 # tot_diff = 0
@@ -127,13 +129,22 @@ pred = fm.decoder.predict(x0.cuda(), h=h, n_sampling_steps=n_sampling_steps)
 
 # Pre-compute the original power spectrum
 y = img.cpu().numpy()[0,0,:,:] * std + mean
-delta_fields_orig_1 = y / np.mean(y) - 1
+
+denorm = img[0,:,:,:] * std + mean
+low = T.GaussianBlur(11, 5)(denorm)
+mid = denorm - low
+
+print(std, mean, torch.mean(mid), torch.mean(pred), torch.std(mid), torch.std(pred))
+
+delta_fields_orig_1 = mid.cpu().numpy()[0, : , :] / np.mean(y) - 1
 Pk2D = PKL.Pk_plane(delta_fields_orig_1, 25.0, "None", 1, verbose=False)
 k_orig = Pk2D.k
 Pk_orig = Pk2D.Pk
 
-pred = pred.detach().cpu().numpy()[0,0,:,:]*std+mean
-delta_fields_pred_1 = pred / np.mean(pred) - 1
+# pred = pred.detach().cpu().numpy()[0,0,:,:]*std+mean
+
+pred = (pred).cpu().numpy()[0, 0, :, :] * std + mean
+delta_fields_pred_1 = pred / np.mean(y) - 1
 Pk2D = PKL.Pk_plane(delta_fields_pred_1, 25.0, "None", 1, verbose=False)
 k_pred = Pk2D.k
 Pk_pred = Pk2D.Pk

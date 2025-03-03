@@ -80,7 +80,7 @@ parser.add_argument(
 )
 parser.add_argument(
     "--batch_size",
-    default=20,
+    default=16,
     type=int,
     help="batch size",
     required=False,
@@ -139,95 +139,40 @@ def train(args):
         run_name = "test_run"  # You can set a default name for non-logging runs
         print(f"Running without Weights and Biases logging.")
 
-    if dataset == 'CelebA':
-        transform = transforms.Compose([
-            transforms.Pad(
-                padding=(39, 19),  # Pad 39 pixels on the left/right and 19 pixels on the top/bottom
-                fill=0  # Fill with 0s (black padding)
-            ),
-            transforms.CenterCrop((256, 256)),  # Crop if necessary to get an exact 256x256 resolution
-            transforms.ToTensor(),  # Convert images to tensors
-            transforms.Normalize((0), (1))  # Normalize to [-1, 1]
-        ])
-
-        train_data = CelebA(
-            root="./data",
-            split="train",
-            download=True,
-            transform=transform
-        )
-
-        subset_size = 100000
-        subset_indices = random.sample(range(len(train_data)), subset_size)
-        subset_dataset = Subset(train_data, subset_indices)
-
-        # Use the subset dataset for training
-        train_data = subset_dataset
-        
-        train_loader = DataLoader(
-            train_data,
-            batch_size=args.batch_size,
-            shuffle=True,
-            num_workers=args.num_workers,
-            pin_memory=True,
-        )
-
-        val_data = CelebA(
-            root="./data",
-            split="valid",
-            download=True,
-            transform=transform
-        )
-        
-        subset_size = 10000
-        subset_indices = random.sample(range(len(val_data)), subset_size)
-        subset_dataset = Subset(val_data, subset_indices)
-
-        # Use the subset dataset for training
-        val_data = subset_dataset
-        
-        val_loader = DataLoader(
-            val_data,
-            batch_size=args.batch_size,
-            shuffle=False,
-            num_workers=args.num_workers,
-            pin_memory=True,
-        )
-        
-    elif dataset == 'CAMELS':
-        train_data = data.CAMELS(
-        idx_list=range(14_000),
+    dataset == 'CAMELS'
+    train_data = data.CAMELS(
+    idx_list=range(14_000),
+    map_type='Mcdm',
+    parameters=['Omega_m', 'sigma_8',],
+    )
+    train_loader = DataLoader(
+        train_data,
+        batch_size=args.batch_size,
+        shuffle=True,
+        num_workers=args.num_workers,
+        pin_memory=True,
+    )
+    val_data = data.CAMELS(
+        idx_list=range(14_000, 15_000),
         map_type='Mcdm',
         parameters=['Omega_m', 'sigma_8',],
-        )
-        train_loader = DataLoader(
-            train_data,
-            batch_size=args.batch_size,
-            shuffle=True,
-            num_workers=args.num_workers,
-            pin_memory=True,
-        )
-        val_data = data.CAMELS(
-            idx_list=range(14_000, 15_000),
-            map_type='Mcdm',
-            parameters=['Omega_m', 'sigma_8',],
-        )
-        val_loader = DataLoader(
-            val_data,
-            batch_size=args.batch_size,
-            shuffle=False,
-            num_workers=args.num_workers,
-            pin_memory=True,
-        )
+    )
+    val_loader = DataLoader(
+        val_data,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=args.num_workers,
+        pin_memory=True,
+    )
         
     print(f'Using {len(train_data)} training samples and {len(val_data)} validation samples.')
 
-    checkpoint_callback = ModelCheckpoint(
+    checkpoint_callback_phase_0 = ModelCheckpoint(
         dirpath=Path(args.output_dir) / f'{run_name}',
         filename='step={step}-{val_loss:.3f}',
         save_top_k=1,
         monitor='val_loss',
-        save_last=False,
+        save_last=True,
         every_n_train_steps=args.save_every,
     )
     lr_monitor = LearningRateMonitor(logging_interval='step')
@@ -238,10 +183,10 @@ def train(args):
             m.bias.data.fill_(0.01)
     
     fm = represent.Represent(
-        latent_dim=args.latent_dim,
         log_wandb=args.use_wandb,
         unconditional=args.unconditional,
-        latent_img_channels = 128,
+        latent_img_channels = 16,
+        model_phase = 0
     )
         
     fm.apply(init_weights)
@@ -252,18 +197,18 @@ def train(args):
         # gradient_clip_val=1.0,
         logger=logger,
         log_every_n_steps=50,
-        accumulate_grad_batches=args.accumulate_gradients if args.accumulate_gradients is not None else 2,
-        callbacks=[checkpoint_callback, lr_monitor],
-        devices=3,
+        accumulate_grad_batches=args.accumulate_gradients if args.accumulate_gradients is not None else 1,
+        callbacks=[checkpoint_callback_phase_0, lr_monitor],
+        devices=4,
         check_val_every_n_epoch=None,
         val_check_interval=args.eval_every,
-        max_epochs=200,
+        max_epochs=300,
         profiler="simple" if args.profile else None,
         strategy="ddp_find_unused_parameters_true",
         accelerator="gpu",
     )
     trainer.fit(model=fm, train_dataloaders=train_loader, val_dataloaders=val_loader)
-
+    
 if __name__ == "__main__":
     args = parser.parse_args()
     train(args)

@@ -119,7 +119,7 @@ class FlowMatching(nn.Module):
         )
         node = NeuralODE(
             conditional_velocity_model,
-            solver="rk4",
+            solver="dopri5",
             sensitivity="adjoint",
         )
         with torch.no_grad():

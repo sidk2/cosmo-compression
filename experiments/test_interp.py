@@ -1,4 +1,3 @@
-from typing import List
 import os
 
 import torch
@@ -43,7 +42,7 @@ loader = torchdata.DataLoader(
     pin_memory=True,
 )
 
-fm = represent.Represent.load_from_checkpoint("growing_latent_64/step=step=8900-val_loss=0.322.ckpt").to(device)
+fm = represent.Represent.load_from_checkpoint("64_hier/step=step=4600-val_loss=0.328.ckpt").to(device)
 fm.eval()
 
 gts = []
@@ -57,7 +56,6 @@ n_sampling_steps = 50
 t = torch.linspace(0, 1, n_sampling_steps).cuda()
         
 h = fm.encoder(img)
-print(h.shape)
 
 gts.append((cosmo, img * std + mean, h))
 y = img.cpu().numpy().squeeze() * std + mean
@@ -90,14 +88,10 @@ target_img = gts[-1][2]
 h_linear = []
 # Define latent interpolation ranges and labels
 modulation_ranges = {
-    f"Stage {0}" : range(56, 64),
-    f"Stage {1}" : range(48, 56),
-    f"Stage {2}" : range(40, 48),
-    f"Stage {3}" : range(32, 40),
-    f"Stage {4}" : range(24, 32),
-    f"Stage {5}" : range(16, 24),
-    f"Stage {6}" : range(8, 16),
-    f"Stage {7}" : range(0, 8),
+    f"Stage 3" : range(48, 64),
+    f"Stage 2" : range(32, 48),
+    f"Stage 1" : range(16, 32),
+    f"Stage 0" : range(0, 16),
 }
 
 num_samples_per_stage = 5
