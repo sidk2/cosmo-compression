@@ -312,6 +312,7 @@ class UNet(nn.Module):
             out_channels=128,
             time_dim=time_dim,
         )
+        self.sa1 = SelfAttention(channels=128)
         self.down2 = DownStep(
             in_channels=128 + int(self.num_latent_channels / 4),
             out_channels=256,
@@ -336,24 +337,28 @@ class UNet(nn.Module):
             out_channels=256,
             time_dim=time_dim,
         )
+        self.sa0_inv = SelfAttention(channels=256)
         self.up1 = UpStep(
             in_channels=256,
             res_channels=256 + int(self.num_latent_channels / 4),
             out_channels=256,
             time_dim=time_dim,
         )
+        self.sa1_inv = SelfAttention(channels=256)
         self.up2 = UpStep(
             in_channels=256,
             res_channels=128 + int(self.num_latent_channels / 4),
             out_channels=128,
             time_dim=time_dim,
         )
+        self.sa2_inv = SelfAttention(channels=128)
         self.up3 = UpStep(
             in_channels=128,
             res_channels=64 + int(self.num_latent_channels / 4),
             out_channels=64,
             time_dim=time_dim,
         )
+        self.sa3_inv = SelfAttention(channels=64)
         self.outc = nn.Conv2d(
             in_channels=64,
             out_channels=n_channels,
@@ -501,6 +506,7 @@ class UNet(nn.Module):
         
         x1 = torch.cat([latent_ch1, x1], dim=1)
         x2 = self.down1(x1, t)
+        x2 = self.sa1(x2)
         x2 = torch.cat([latent_ch2, x2], dim=1)
         x3 = self.down2(x2, t)
         x3 = self.sa2(x3)
@@ -509,12 +515,17 @@ class UNet(nn.Module):
         x4 = self.sa3(x4)
         x4 = torch.cat([latent_ch4, x4], dim=1)
         x5 = self.down4(x4, t)
+        x5 = self.sa4(x5)
 
         # Upsampling stages
         x = self.up0(x5, x4, t)
+        x = self.sa0_inv(x)
         x = self.up1(x, x3, t)
+        x = self.sa1_inv(x)
         x = self.up2(x, x2, t)
+        x = self.sa2_inv(x)
         x = self.up3(x, x1, t)
+        x = self.sa3_inv(x)
         output = self.outc(x)
 
         return output
