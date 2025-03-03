@@ -20,6 +20,7 @@ class ResnetBlock(nn.Module):
                     out_channels=out_channels,
                     kernel_size=3,
                     stride=stride,
+                    padding=1,
                     padding_mode='circular',
                 ),
                 nn.Conv2d(
@@ -27,6 +28,7 @@ class ResnetBlock(nn.Module):
                     out_channels=out_channels,
                     kernel_size=3,
                     stride=1,
+                    padding=1,
                     padding_mode='circular',
                 ),
             ]
@@ -61,10 +63,9 @@ class ResnetBlock(nn.Module):
 class ResNet(nn.Module):
     """Residual convolutional network (ResNet 18 architecture)"""
 
-    def __init__(self, in_channels: int, latent_img_channels: int = 32, blur_kernel_size = 1, downsampling_factor = 16):
+    def __init__(self, in_channels: int, latent_img_channels: int = 32, blur_kernel_size = 1):
         super(ResNet, self).__init__()
         # CAMELS Multifield Dataset is 256x256
-        self.in_channels = 64
         self.in_layer = nn.Sequential(
             
                 nn.Conv2d(
@@ -73,15 +74,13 @@ class ResNet(nn.Module):
                     kernel_size=3,
                     stride=1,
                     padding=1,
-                    bias=False,
-                    padding_mode='circular',
+                    bias=False, padding_mode='circular'
                 ),
                 nn.BatchNorm2d(num_features=64),
                 nn.ReLU(),
                 nn.MaxPool2d(kernel_size=3, stride=2, padding=1),
             
         )
-        self.blur = T.GaussianBlur(kernel_size=blur_kernel_size, sigma=blur_kernel_size / 3)
         self.resnet_layers = nn.ModuleList(
             [
                 self._make_layer(in_channels=64, out_channels=64, num_blocks=1, stride=1),
@@ -92,8 +91,7 @@ class ResNet(nn.Module):
                 self._make_layer(in_channels=256, out_channels=latent_img_channels, num_blocks=1, stride=2),
             ]
         )
-        # self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        # self.fc = nn.Linear(latent_img_channels, latent_dim)
+        self.blur = T.GaussianBlur(kernel_size=blur_kernel_size, sigma=blur_kernel_size / 3)
 
     def _make_layer(self, in_channels: int, out_channels: int, num_blocks: int, stride: int) -> nn.Sequential:
         strides = [stride] + [1] * (num_blocks - 1)
@@ -105,7 +103,6 @@ class ResNet(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Overloads forward method of nn.Module"""
         x = self.in_layer(self.blur(x))
-        # print("latent: ", x)
         for i, layer in enumerate(self.resnet_layers):
             x = layer(x)
         return x
@@ -127,4 +124,5 @@ class ResNetEncoder(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Overloads forward method of nn.Module"""
-        return torch.cat([layer(x) for layer in self.resnet_list], dim=1)
+        latent = torch.cat([layer(x) for layer in self.resnet_list], dim=1)
+        return latent

@@ -80,13 +80,13 @@ class UpsamplingUNetConv(nn.Module):
         )
         self.gn_1 = AdaGN(
             num_channels=int_channels,
-            num_groups=(8),
+            num_groups=8,
         )
         self.gelu = nn.GELU()
         self.conv2 = subpel_conv3x3(in_ch=int_channels, out_ch=out_channels, r=2)
         self.gn_2 = AdaGN(
             num_channels=out_channels,
-            num_groups=(8),
+            num_groups=8,
         )
 
         self.t_scale_proj_1 = nn.Linear(time_dim, int_channels)
@@ -140,7 +140,7 @@ class UNetConv(nn.Module):
         )
         self.gn_1 = AdaGN(
             num_channels=int_channels,
-            num_groups=(8),
+            num_groups=8,
         )
         self.gelu = nn.GELU()
         self.conv2 = nn.Conv2d(
@@ -153,7 +153,7 @@ class UNetConv(nn.Module):
         )
         self.gn_2 = AdaGN(
             num_channels=out_channels,
-            num_groups=(8),
+            num_groups=8,
         )
 
         self.t_scale_proj_1 = nn.Linear(time_dim, int_channels)
@@ -459,7 +459,7 @@ class UNet(nn.Module):
         z = self.dropout(z)
 
         # Split latent into 4 chunks
-        latent_ch1 = z[:, 0 : int(self.num_latent_channels / 4), :, :]
+        latent_ch1 = z[:, 0 : int(self.num_latent_channels // 4), :, :]
         latent_ch2 = z[
             :,
             int(self.num_latent_channels // 4) : 2 * int(self.num_latent_channels / 4),
@@ -498,10 +498,9 @@ class UNet(nn.Module):
 
         # Downsampling stages
         x1 = self.inc(x, t)
-
+        
         x1 = torch.cat([latent_ch1, x1], dim=1)
         x2 = self.down1(x1, t)
-        x2 = self.sa1(x2)
         x2 = torch.cat([latent_ch2, x2], dim=1)
         x3 = self.down2(x2, t)
         x3 = self.sa2(x3)
