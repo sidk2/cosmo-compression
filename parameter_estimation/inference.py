@@ -13,7 +13,7 @@ from scipy import stats as scistats
 
 
 # Set CUDA device
-os.environ["CUDA_VISIBLE_DEVICES"] = "4"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Set random seed for reproducibility
@@ -38,21 +38,21 @@ class ParamMLP(nn.Module):
 class CompressionDataset(Dataset):
     def __init__(self, idx_list: List[int]):
         super().__init__()
-        self.x = torch.tensor(np.load('cosmo_compression/parameter_estimation/data/latents.npy'))[idx_list[0]: idx_list[-1]]
-        self.y = torch.tensor(np.load('cosmo_compression/parameter_estimation/data/params.npy'))[idx_list[0]: idx_list[-1]]
+        self.x = torch.tensor(np.load('cosmo_compression/parameter_estimation/data/cdm_latents.npy'))[idx_list[0]: idx_list[-1]]
+        self.y = torch.tensor(np.load('cosmo_compression/parameter_estimation/data/cdm_params.npy'))[idx_list[0]: idx_list[-1]]
     
     def __len__(self):
         return len(self.x)
         
     def __getitem__(self, index):
-        return self.x[index], self.y[index][0][0:2]
+        return self.x[index], self.y[index][0:2]
 
 if __name__ == '__main__':
     # Hyperparameters
     num_dps = 15000
     batch_size = 100
     learning_rate = 1e-6
-    num_epochs = 100  # Adjust based on your training needs
+    num_epochs = 50  # Adjust based on your training needs
 
     train_data = CompressionDataset(idx_list=[0, 14600])
     val_data = CompressionDataset(idx_list=[14600, 15000])
@@ -81,7 +81,7 @@ if __name__ == '__main__':
 
     # # Training and validation loops
     best_val_loss = float('inf')
-    checkpoint_path = "cosmo_compression/parameter_estimation/data/best_model.pth"
+    checkpoint_path = "cosmo_compression/parameter_estimation/data/best_model_64ch.pth"
 
     for epoch in range(num_epochs):
         # Training
@@ -165,7 +165,7 @@ if __name__ == '__main__':
     print(all_preds.shape, all_targets.shape)
 
     # Plotting scatter plots for each column with line of best fit
-    params = ['$A_{AGN1}$', '$A_{AGN2}$',]
+    params = ['$\Omega_m$', '$\sigma_8$',]
     # params = ['A_AGN1', 'A_AGN2']
     fig, axes = plt.subplots(1, 2, figsize=(8, 4))
     for i in range(2):
@@ -181,6 +181,6 @@ if __name__ == '__main__':
         axes[i].set_xlabel('Ground Truth')
         axes[i].set_ylabel('Prediction')
 
-    plt.suptitle("Predictions using Latent Space of Temp Model")
+    plt.suptitle("Predictions using Latent Space of Model")
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-    plt.savefig("cosmo_compression/results/scatter_est_agn_hdm.png")
+    plt.savefig("cosmo_compression/results/scatter_est_cdm.png")

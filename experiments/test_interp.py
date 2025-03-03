@@ -1,4 +1,3 @@
-from typing import List
 import os
 
 import torch
@@ -16,65 +15,24 @@ import tqdm
 
 from cosmo_compression.data import data
 from cosmo_compression.model import represent
-from cosmo_compression.parameter_estimation import inference
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "4" 
+torch.manual_seed(42)
 
-MAP_TYPE = 'Mcdm'
+os.environ["CUDA_VISIBLE_DEVICES"] = "4"
+
+MAP_TYPE = "Mcdm"
 MAP_RESOLUTION = 256
 
 mean = data.NORM_DICT[MAP_TYPE][MAP_RESOLUTION]["mean"]
 std = data.NORM_DICT[MAP_TYPE][MAP_RESOLUTION]["std"]
 
-def input_grad(model: nn.Module, 
-               input: torch.Tensor, 
-               output_index: int, 
-               other_output_inds: List[int] | None = None):
-    """
-    Computes the gradient of the input with respect to a target output,
-    and makes it orthogonal to the gradient w.r.t. a specified set of outputs
-
-    Args:
-        model: The parameter estimation model.
-        x: The input tensor, requires gradient.
-        target_output_index: The index of the target output.
-        other_output_indices: Indices of the outputs to which the gradient
-                                            should be orthogonal.
-
-    Returns:
-        torch.Tensor: The gradient of the input with respect to the target output, orthogonalized
-                      to the gradients of other specified outputs.
-    """
-    # Ensure input requires gradient
-    x = input.requires_grad_(True)
-    outputs = model(x)
-    
-    if not other_output_inds:
-        other_output_inds = [i for i in range(len(outputs.shape[-1])) if i != output_index]
-
-    # Compute gradient w.r.t the target output
-    grad_target = torch.autograd.grad(outputs[:, output_index], x, retain_graph=True)[0]
-
-    # Initialize orthogonal gradient as the target gradient
-    grad_orthogonal = grad_target.clone()
-
-    # Compute orthogonal component for each other output
-    for idx in other_output_inds:
-        grad_other = torch.autograd.grad(outputs[:, idx], x, retain_graph=True)[0]
-        dot_product = torch.sum(grad_orthogonal * grad_other)
-        norm_grad_other = torch.sum(grad_other ** 2)
-        grad_orthogonal = grad_orthogonal - (dot_product / (norm_grad_other + 1e-8)) * grad_other
-
-    return grad_orthogonal
-
-param_est_path: str = "cosmo_compression/parameter_estimation/data/best_model.pth"
-device: str = 'cuda' if torch.cuda.is_available() else 'cpu'
+device: str = "cuda" if torch.cuda.is_available() else "cpu"
 
 dataset: torchdata.Dataset = data.CAMELS(
-        map_type=MAP_TYPE,
-        dataset='1P',
-        parameters=['Omega_m', 'sigma_8', 'A_SN1', 'A_SN2', 'A_AGN1', 'A_AGN2','Omega_b'],
-    )
+    map_type=MAP_TYPE,
+    dataset="1P",
+    parameters=["Omega_m", "sigma_8", "A_SN1", "A_SN2", "A_AGN1", "A_AGN2", "Omega_b"],
+)
 
 loader = torchdata.DataLoader(
     dataset,
@@ -84,63 +42,103 @@ loader = torchdata.DataLoader(
     pin_memory=True,
 )
 
-# Load models
-fm: lightning.LightningModule = represent.Represent.load_from_checkpoint("soda-comp/step=step=3500-val_loss=0.445.ckpt").to(device)
+fm = represent.Represent.load_from_checkpoint("64_hier/step=step=4600-val_loss=0.328.ckpt").to(device)
 fm.eval()
 
+<<<<<<< HEAD
 param_est: nn.Module = inference.ParamMLP(input_dim=2304, hidden_widths=[1000,1000,256], output_dim=2).to(device)
 param_est.load_state_dict(torch.load(param_est_path))
 
+=======
+>>>>>>> curriculum-learning
 gts = []
 Pk_orig = np.zeros(181)
 Pk_fin = np.zeros(181)
 
-cosmo, img = dataset[0]
+img, cosmo = dataset[60]
 img = torch.tensor(img).unsqueeze(0).cuda()
+<<<<<<< HEAD
 latent = fm.encoder(img).unsqueeze(0)
 
 gts.append((cosmo, img*std+mean, latent))
+=======
+
+n_sampling_steps = 50
+t = torch.linspace(0, 1, n_sampling_steps).cuda()
+        
+h = fm.encoder(img)
+
+gts.append((cosmo, img * std + mean, h))
+>>>>>>> curriculum-learning
 y = img.cpu().numpy().squeeze() * std + mean
 delta_fields_orig_1 = y / np.mean(y) - 1
-Pk2D = PKL.Pk_plane(delta_fields_orig_1, 25.0, 'None', 1, verbose=False)
+Pk2D = PKL.Pk_plane(delta_fields_orig_1, 25.0, "None", 1, verbose=False)
 k_orig = Pk2D.k
 Pk_orig = Pk2D.Pk
 
-cosmo, img = dataset[60]
+img, cosmo = dataset[0]
 img = torch.tensor(img).unsqueeze(0).cuda()
 
-latent = fm.encoder(img).unsqueeze(0)
+h = fm.encoder(img) 
 
+gts.append((cosmo, img * std + mean, h))
+
+<<<<<<< HEAD
 gts.append((cosmo, img*std+mean, latent))
+=======
+>>>>>>> curriculum-learning
 y = img.cpu().numpy().squeeze() * std + mean
 delta_fields_orig_1 = y / np.mean(y) - 1
-Pk2D = PKL.Pk_plane(delta_fields_orig_1, 25.0, 'None', 1, verbose=False)
+Pk2D = PKL.Pk_plane(delta_fields_orig_1, 25.0, "None", 1, verbose=False)
 k_fin = Pk2D.k
 Pk_fin = Pk2D.Pk
 
 # Define latent vectors for gradient-based interpolation
-h_grad = [gts[0][2]]
+h_grad = [gts[0][2][0]]
 h_linear = []
 
-# Define starting and target points
-starting_latent = gts[0][2]
-target_latent = gts[-1][2]
+starting_img = gts[0][2]
+target_img = gts[-1][2]
 
+<<<<<<< HEAD
 # Linear interpolation: Create latent representations directly
 num_samples = 20
 h_linear = [
     starting_latent + t * (target_latent - starting_latent)
     for t in np.linspace(0, 1, num_samples)
 ]
+=======
+# Initialize a list for the interpolated latents
+h_linear = []
+# Define latent interpolation ranges and labels
+modulation_ranges = {
+    f"Stage 3" : range(48, 64),
+    f"Stage 2" : range(32, 48),
+    f"Stage 1" : range(16, 32),
+    f"Stage 0" : range(0, 16),
+}
+>>>>>>> curriculum-learning
 
-starting_omega_m = gts[0][0][0]
-starting_sigma_8 = gts[0][0][1]
+num_samples_per_stage = 5
+all_interpolations = []
+labels = []
 
-target_omega_m = gts[-1][0][0]
-target_sigma_8 = gts[-1][0][1]
+current_image = starting_img.clone()
 
-print(f"Interpolation between {starting_omega_m, starting_sigma_8} and {target_omega_m, target_sigma_8}")
+for label, specified_channels in modulation_ranges.items():
+    # Perform interpolation for the specified channels
+    for i in range(num_samples_per_stage):
+        t = i / (num_samples_per_stage - 1)  # Interpolation factor
+        interpolated_image = current_image.clone()  # Clone the current image
+        interpolated_image[:, specified_channels] = (
+            (1 - t) * starting_img[:, specified_channels]
+            + t * target_img[:, specified_channels]
+        )
+        # Combine the latent vector (unchanged) with the interpolated image
+        all_interpolations.append( interpolated_image)
+        labels.append(label)
 
+<<<<<<< HEAD
 # Learning rate for updates
 learning_rate = 0.01
 # Number of steps
@@ -150,26 +148,60 @@ x0 = torch.randn((1, 1,256,256), device='cuda')
 for step in tqdm.tqdm(range(max_steps)):
     output = param_est(h_grad[-1].cuda())[:, 0].item()
     grad = input_grad(model=param_est, input=h_grad[-1].cuda(), output_index=0, other_output_inds=[1])
-    
-    if output > target_omega_m:
-        h_new = h_grad[-1] - learning_rate * grad
-    else:
-        h_new = h_grad[-1] + learning_rate * grad
-    
-    outputs = param_est(h_new.cuda())
-    target_output = outputs[:, 0].item()
-    h_grad.append(h_new)
-    
-    if abs(target_output - target_omega_m) < 0.001:
-        break
+=======
+    # Update current latent and image to the end of this stage
+    current_image = interpolated_image.clone()
 
-h_grad = h_grad[::len(h_grad) // num_samples] + [h_grad[-1]]
-Pk_grad = np.zeros((num_samples, 181))
-Pk_linear = np.zeros((num_samples, 181))
+# Reverse interpolation
+for label, specified_channels in modulation_ranges.items():
+    for i in range(num_samples_per_stage):
+        t = i / (num_samples_per_stage - 1)  # Interpolation factor
+        interpolated_image = current_image.clone()  # Clone the current image
+        interpolated_image[:, specified_channels] = (
+            (1 - t) * target_img[:, specified_channels]
+            + t * starting_img[:, specified_channels]
+        )
+        # Combine the latent vector (unchanged) with the interpolated image
+        all_interpolations.append(interpolated_image)
+        labels.append(f"Reverse: {label}")
 
-images_grad = []
-images_linear = []
+    # Update current latent and image to the end of this stage
+    current_image = interpolated_image.clone()
 
+# Generate multiple x0s and use the same set for all steps
+num_samples = 1
+x0_samples = [torch.randn((1, 1, 256, 256), device="cuda") for _ in range(num_samples)]
+Pk_interpolations = np.zeros((len(all_interpolations), 181))
+images_interpolations = []
+
+for i, latent_interpolation in tqdm.tqdm(enumerate(all_interpolations)):
+    preds = []
+    Pk_samples = []  # To store power spectra for each x0
+
+    for x0 in x0_samples:
+        pred = fm.decoder.predict(x0.cuda(), h=latent_interpolation, n_sampling_steps=n_sampling_steps)
+        preds.append(pred.cpu().numpy()[0, 0, :, :])
+        
+        # Compute power spectrum for this sample
+        sample_pred = pred.cpu().numpy()[0, 0, :, :] * std + mean
+        delta = sample_pred / np.mean(sample_pred) - 1
+        Pk2D = PKL.Pk_plane(delta, 25.0, "None", 1, verbose=False)
+        Pk_samples.append(Pk2D.Pk)
+>>>>>>> curriculum-learning
+    
+    # Average power spectra across all samples
+    Pk_interpolations[i, :] = np.mean(Pk_samples, axis=0)
+    
+    # Use the first sample for visualization
+    images_interpolations.append(preds[0] * std + mean)
+
+def create_combined_animation_with_pauses(Pk_data, images, labels, filename, pause_frames=10):
+    fig, axs = plt.subplots(2, 2, figsize=(12, 12))
+
+    global_vmin = min(np.min(img) for img in images)
+    global_vmax = max(np.max(img) for img in images)
+
+<<<<<<< HEAD
 # Generate maps, power spectra, and images
 for i, (latent_grad, latent_linear) in tqdm.tqdm(enumerate(zip(h_grad, h_linear))):
     # Gradient-based
@@ -207,11 +239,37 @@ def create_combined_animation_with_params(
     # Source Image Plot
     axs[0, 0].imshow(
         gts[0][1].cpu().squeeze(),
+=======
+    axs[0, 0].imshow(
+        gts[0][1].cpu().squeeze(),
         cmap="viridis",
         origin="lower",
         vmin=global_vmin,
         vmax=global_vmax,
     )
+    axs[0, 0].set_title("Source Image")
+    axs[0, 0].axis("off")
+
+    axs[1, 0].imshow(
+        gts[-1][1].cpu().squeeze(),
+        cmap="viridis",
+        origin="lower",
+        vmin=global_vmin,
+        vmax=global_vmax,
+    )
+    axs[1, 0].set_title("Destination Image")
+    axs[1, 0].axis("off")
+
+    linear_img_ax = axs[0, 1]
+    linear_img_plot = linear_img_ax.imshow(
+        images[0].squeeze(),
+>>>>>>> curriculum-learning
+        cmap="viridis",
+        origin="lower",
+        vmin=global_vmin,
+        vmax=global_vmax,
+    )
+<<<<<<< HEAD
     axs[0, 0].set_title("Source Image")
     axs[0, 0].axis("off")
 
@@ -316,3 +374,50 @@ grad_params = np.array([param_est(h.cuda()).cpu().detach().numpy()[0,0] for h in
 create_combined_animation_with_params(
     Pk_linear, Pk_grad, images_linear, images_grad, linear_params, grad_params, "cosmo_compression/results/Combined.gif"
 )
+=======
+    linear_img_ax.set_title("Interpolation: Images")
+    linear_img_ax.axis("off")
+
+    linear_power_ax = axs[1, 1]
+    linear_power_ax.set_xscale("log")
+    linear_power_ax.set_yscale("log")
+    linear_power_ax.plot(k_orig, Pk_orig, label="Start Point", color="blue")
+    linear_power_ax.plot(k_orig, Pk_fin, label="End Point", color="red")
+    (linear_power_line,) = linear_power_ax.plot([], [], lw=2, color="green")
+    linear_power_ax.set_title("Interpolation: Power Spectrum")
+    linear_power_ax.legend()
+
+    # Extend frames to include pauses
+    extended_frames = []
+    extended_labels = []
+    for i, (img, label) in enumerate(zip(images, labels)):
+        extended_frames.append(i)
+        extended_labels.append(label)
+        if i == len(images) - 1 or labels[i] != labels[i + 1]:
+            # Repeat the last frame of a phase
+            extended_frames.extend([i] * pause_frames)
+            extended_labels.extend([label] * pause_frames)
+
+    def update(frame):
+        current_frame = extended_frames[frame]
+        linear_img_plot.set_data(images[current_frame].squeeze())
+        linear_power_line.set_data(k_orig, Pk_data[current_frame])
+        axs[0, 1].set_title(extended_labels[frame])
+
+        return (
+            linear_img_plot,
+            linear_power_line,
+        )
+
+    ani = FuncAnimation(fig, update, frames=len(extended_frames), blit=True)
+    ani.save(filename, writer=PillowWriter(fps=5))
+    plt.close(fig)
+
+# Create the combined animation with pauses after each modulation phase
+create_combined_animation_with_pauses(
+    Pk_interpolations,
+    images_interpolations,
+    labels,
+    "cosmo_compression/results/Combined_Modulations.gif",
+)
+>>>>>>> curriculum-learning

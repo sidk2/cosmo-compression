@@ -13,6 +13,8 @@ import torch
 from torch import nn
 import wandb
 
+from torchvision import transforms as T
+
 from cosmo_compression.model import flow_matching as fm
 from cosmo_compression.model import unet
 from cosmo_compression.model import resnet
@@ -75,43 +77,47 @@ def log_matplotlib_figure(figure_label: str):
 class Represent(LightningModule):
     def __init__(
         self,
-        latent_dim: int = 32,
         unconditional: bool = False,
         log_wandb: bool = True,
         reverse: bool = False,
+        latent_img_channels: int = 64,
     ):
         super().__init__()
         self.save_hyperparameters()
-        self.latent_dim = latent_dim
         self.unconditional = unconditional
         self.log_wandb = log_wandb
-        self.encoder = self.initialize_encoder(latent_dim=latent_dim * 9, in_channels=1)
-        velocity_model = self.initialize_velocity(latent_dim=latent_dim)
+        self.latent_img_channels = latent_img_channels
+        self.encoder = self.initialize_encoder(in_channels=1)
+        velocity_model = self.initialize_velocity()
         self.decoder = fm.FlowMatching(velocity_model, reverse=reverse)
         self.validation_step_outputs = []
+        
 
-    def initialize_velocity(self, latent_dim: int) -> nn.Module:
+    def initialize_velocity(self) -> nn.Module:
         return unet.UNet(
             n_channels=1,
             time_dim=256,
-            latent_dim=latent_dim,
+            latent_img_channels = 4*self.latent_img_channels,
         )
 
-    def initialize_encoder(self, latent_dim: int, in_channels: int) -> nn.Module:
-        return resnet.ResNet(in_channels=in_channels, latent_dim=latent_dim)
+    def initialize_encoder(self, in_channels: int) -> nn.Module:
+        return resnet.ResNetEncoder(in_channels=in_channels, latent_img_channels = self.latent_img_channels)
 
     def get_loss(
         self,
-        batch: Tuple[np.array, np.array],
+        batch: Tuple[torch.Tensor, torch.Tensor],
     ) -> torch.Tensor:
-        cosmology, y = batch
+        y, cosmo = batch
+                
         # Train representation
+        t = torch.rand((y.shape[0]), device = y.device)
         h = self.encoder(y) if not self.unconditional else None
         x0 = torch.randn_like(y)
         decoder_loss = self.decoder.compute_loss(
             x0=x0,
             x1=y,
             h=h,
+            t=t,
         )
         return decoder_loss
 
@@ -139,17 +145,17 @@ class Represent(LightningModule):
         batch = self.validation_step_outputs[0]["batch"]
         self._log_figures(batch, log=self.log_wandb)
         self.validation_step_outputs.clear()
-
+        
+        self.optimizers().step()
+        
     @utilities.rank_zero_only
     def _log_figures(
         self,
         batch: Tuple[np.array, np.array],
         log=True,
     ) -> None:
-        cosmology, y = batch
-        h = self.encoder(y) if not self.unconditional else None
-        # if h is not None:
-        #     h = self.h_embedding(h)
+        y, cosmo = batch
+        h = self.encoder(y)
         x0 = torch.randn_like(y)
         pred = self.decoder.predict(
             x0,
@@ -159,19 +165,32 @@ class Represent(LightningModule):
         if log:
             print("Logging")
             # plot field reconstruction
-            fig, ax = plt.subplots(1, 2, figsize=(8, 4))
-            ax[0].imshow(y[0, 0].detach().cpu().numpy(), cmap="viridis")
-            ax[1].imshow(pred[0, 0].detach().cpu().numpy(), cmap="viridis")
+            fig, ax = plt.subplots(1, 2, figsize=(12, 4))
+            ax[0].imshow(y[0, :, : , :].detach().cpu().permute(1, 2, 0).numpy())
+            ax[1].imshow(pred[0, :, : , :].detach().cpu().permute(1, 2, 0).numpy())
             ax[0].set_title("x")
             ax[1].set_title("Reconstructed x")
-            plt.savefig("field_construction.png")
+            plt.savefig("cosmo_compression/results/field_reconstruction.png")
             log_matplotlib_figure("field_reconstruction")
+            plt.close()
+            
+            fig, ax = plt.subplots(2, 2, figsize=(8, 8))
+            ax[0, 0].imshow(h[0, 0, : , :].detach().unsqueeze(-1).cpu().numpy())
+            ax[0, 1].imshow(h[0, 1, : , :].detach().unsqueeze(-1).cpu().numpy())
+            ax[1, 0].imshow(h[0, 2, : , :].detach().unsqueeze(-1).cpu().numpy())
+            ax[1, 1].imshow(h[0, 3, : , :].detach().unsqueeze(-1).cpu().numpy())
+            ax[0, 0].set_title("Encoder 1")
+            ax[0, 1].set_title("Encoder 2")
+            ax[1, 0].set_title("Encoder 3")
+            ax[1, 1].set_title("Encoder 4")
+            plt.savefig("cosmo_compression/results/latents.png")
+            log_matplotlib_figure("latents")
             plt.close()
 
     def configure_optimizers(self) -> Dict[str, Any]:
-        optimizer = torch.optim.AdamW(self.parameters(), lr=1e-4)
+        optimizer = torch.optim.AdamW(self.parameters(), lr=5e-5)
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, patience=8,
+            optimizer, factor=0.5, patience=10
         )
         return {
             "optimizer": optimizer,

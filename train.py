@@ -2,20 +2,28 @@ from pathlib import Path
 from argparse import ArgumentParser
 
 from torch.utils.data import DataLoader
+from torchvision import transforms
+from torch.utils.data import Subset
+import random
+
+from torchvision.datasets import CelebA
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.callbacks import ModelCheckpoint, LearningRateMonitor
 from lightning import Trainer
 from lightning.pytorch import seed_everything
 
+import torch.nn as nn
+
 import wandb
 import os
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "4, 5" 
+# os.environ["CUDA_VISIBLE_DEVICES"] = "0, 1, 2, 3"
 
-from cosmo_compression.data.data import CAMELS
-from cosmo_compression.model.represent import Represent 
+from cosmo_compression.model import represent
+from cosmo_compression.data import data
 
-import torch 
+
+import torch
 torch.cuda.empty_cache()
 torch.set_float32_matmul_precision('medium')
 
@@ -35,11 +43,7 @@ parser.add_argument(
 )
 
 # Models
-
-
 parser.add_argument('--unconditional', action='store_true', default=False,)
-
-
 
 # Training
 parser.add_argument(
@@ -69,14 +73,14 @@ parser.add_argument(
 )
 parser.add_argument(
     "--max_steps",
-    default=100_000, 
+    default=10_000_000,
     type=int,
     help="steps to run for",
     required=False,
 )
 parser.add_argument(
     "--batch_size",
-    default = 8,
+    default=16,
     type=int,
     help="batch size",
     required=False,
@@ -97,7 +101,7 @@ parser.add_argument(
 )
 parser.add_argument(
     "--save_every",
-    default=500,
+    default=100,
     type=int,
     required=False,
     help="frequency of saving checkpoints, 0 to disable during training",
@@ -117,15 +121,14 @@ parser.add_argument(
     required=False,
 )
 
-
 # Extras
 parser.add_argument('--use_wandb', action='store_true', default=False, help='Set this flag to use Weights and Biases for logging')
 parser.add_argument('--profile', action='store_true', default=False, help='Set this flag to use a profiler')
 
-
-def train(args,):
+def train(args):
     # fix training seed
-    seed_everything(42, workers=True)
+    seed_everything(137, workers=True)
+    dataset = 'CAMELS' # Hard coded for now, make a command line arg
 
     logger = None
     if args.use_wandb:
@@ -136,10 +139,11 @@ def train(args,):
         run_name = "test_run"  # You can set a default name for non-logging runs
         print(f"Running without Weights and Biases logging.")
 
-    train_data = CAMELS(
-        idx_list=range(14_600),
-        map_type='Mcdm',
-        parameters=['Omega_m', 'sigma_8',],
+    dataset == 'CAMELS'
+    train_data = data.CAMELS(
+    idx_list=range(14_000),
+    map_type='Mcdm',
+    parameters=['Omega_m', 'sigma_8',],
     )
     train_loader = DataLoader(
         train_data,
@@ -148,8 +152,8 @@ def train(args,):
         num_workers=args.num_workers,
         pin_memory=True,
     )
-    val_data = CAMELS(
-        idx_list=range(14_600, 15_000),
+    val_data = data.CAMELS(
+        idx_list=range(14_000, 15_000),
         map_type='Mcdm',
         parameters=['Omega_m', 'sigma_8',],
     )
@@ -160,10 +164,10 @@ def train(args,):
         num_workers=args.num_workers,
         pin_memory=True,
     )
+        
     print(f'Using {len(train_data)} training samples and {len(val_data)} validation samples.')
 
-
-    checkpoint_callback = ModelCheckpoint(
+    checkpoint_callback_phase_0 = ModelCheckpoint(
         dirpath=Path(args.output_dir) / f'{run_name}',
         filename='step={step}-{val_loss:.3f}',
         save_top_k=1,
@@ -173,31 +177,37 @@ def train(args,):
     )
     lr_monitor = LearningRateMonitor(logging_interval='step')
     
-    fm = Represent(
-        latent_dim=args.latent_dim,
+    def init_weights(m):
+        if isinstance(m, nn.Linear):
+            nn.init.kaiming_normal_(m.weight, a=0, mode='fan_in', nonlinearity='relu', generator=None)
+            m.bias.data.fill_(0.01)
+    
+    fm = represent.Represent(
         log_wandb=args.use_wandb,
         unconditional=args.unconditional,
+        latent_img_channels = 16,
     )
-    # fm = Represent.load_from_checkpoint("soda-comp/last-v4.ckpt").cuda()
-
+        
+    fm.apply(init_weights)
+    fm.train()
+    
     trainer = Trainer(
-        max_steps=args.max_steps, 
+        max_steps=args.max_steps,
         gradient_clip_val=1.0,
         logger=logger,
         log_every_n_steps=50,
         accumulate_grad_batches=args.accumulate_gradients if args.accumulate_gradients is not None else 1,
-        callbacks=[checkpoint_callback,lr_monitor,],
-        devices=2,
-        check_val_every_n_epoch=None,  
+        callbacks=[checkpoint_callback_phase_0, lr_monitor],
+        devices=4,
+        check_val_every_n_epoch=None,
         val_check_interval=args.eval_every,
-        max_epochs=100,
+        max_epochs=300,
         profiler="simple" if args.profile else None,
+        strategy="ddp_find_unused_parameters_true",
         accelerator="gpu",
-        strategy='ddp_find_unused_parameters_true',
     )
     trainer.fit(model=fm, train_dataloaders=train_loader, val_dataloaders=val_loader)
-
+    
 if __name__ == "__main__":
     args = parser.parse_args()
-    print(args)
     train(args)
