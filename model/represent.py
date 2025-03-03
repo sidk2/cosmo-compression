@@ -81,14 +81,12 @@ class Represent(LightningModule):
         log_wandb: bool = True,
         reverse: bool = False,
         latent_img_channels: int = 64,
-        model_phase: int = -1,
     ):
         super().__init__()
         self.save_hyperparameters()
         self.unconditional = unconditional
         self.log_wandb = log_wandb
         self.latent_img_channels = latent_img_channels
-        self.model_phase = model_phase
         self.encoder = self.initialize_encoder(in_channels=1)
         velocity_model = self.initialize_velocity()
         self.decoder = fm.FlowMatching(velocity_model, reverse=reverse)
@@ -99,9 +97,7 @@ class Represent(LightningModule):
         return unet.UNet(
             n_channels=1,
             time_dim=256,
-            latent_dim=144,
             latent_img_channels = 4*self.latent_img_channels,
-            model_phase = self.model_phase,
         )
 
     def initialize_encoder(self, in_channels: int) -> nn.Module:
@@ -148,8 +144,6 @@ class Represent(LightningModule):
         batch = self.validation_step_outputs[0]["batch"]
         self._log_figures(batch, log=self.log_wandb)
         self.validation_step_outputs.clear()
-        self.model_phase += 1
-        self.decoder.model_phase = self.model_phase
         
         self.optimizers().step()
         

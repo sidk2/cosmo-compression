@@ -7,20 +7,6 @@ import torch.nn.functional as F
 
 import torchvision.transforms as T
 
-def downscale_tensor(y, r):
-    B, C, H, W = y.shape
-    P = int(256 / r)
-    N = r
-    patches = y.unfold(2, P, P).unfold(3, P, P)
-
-    # Step 2: Reshape to stack patches channel-wise
-    # patches shape: (1, 1, num_patches_h, num_patches_w, P, P)
-    # We want to stack them along the channel dimension
-
-    y_hat = patches.contiguous().view(B, -1, P, P)
-    
-    return y_hat
-
 class ResnetBlock(nn.Module):
     """Basic building block for ResNet"""
 

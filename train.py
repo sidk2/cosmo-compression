@@ -186,7 +186,6 @@ def train(args):
         log_wandb=args.use_wandb,
         unconditional=args.unconditional,
         latent_img_channels = 16,
-        model_phase = 0
     )
         
     fm.apply(init_weights)
@@ -194,7 +193,7 @@ def train(args):
     
     trainer = Trainer(
         max_steps=args.max_steps,
-        # gradient_clip_val=1.0,
+        gradient_clip_val=1.0,
         logger=logger,
         log_every_n_steps=50,
         accumulate_grad_batches=args.accumulate_gradients if args.accumulate_gradients is not None else 1,
