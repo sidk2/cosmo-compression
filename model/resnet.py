@@ -63,7 +63,7 @@ class ResnetBlock(nn.Module):
 class ResNet(nn.Module):
     """Residual convolutional network (ResNet 18 architecture)"""
 
-    def __init__(self, in_channels: int, latent_img_channels: int = 32, blur_kernel_size = 1):
+    def __init__(self, in_channels: int, latent_img_channels: int = 32, blur_kernel_size = 1, fc_out_dim: int = 256):
         super(ResNet, self).__init__()
         # CAMELS Multifield Dataset is 256x256
         self.in_layer = nn.Sequential(
@@ -92,6 +92,8 @@ class ResNet(nn.Module):
             ]
         )
         self.blur = T.GaussianBlur(kernel_size=blur_kernel_size, sigma=blur_kernel_size / 3)
+        self.pool = nn.AdaptiveMaxPool2d((1, 1))
+        self.fc = nn.Linear(latent_img_channels, fc_out_dim)
 
     def _make_layer(self, in_channels: int, out_channels: int, num_blocks: int, stride: int) -> nn.Sequential:
         strides = [stride] + [1] * (num_blocks - 1)
@@ -105,7 +107,7 @@ class ResNet(nn.Module):
         x = self.in_layer(self.blur(x))
         for i, layer in enumerate(self.resnet_layers):
             x = layer(x)
-        return x
+        return x, self.fc(self.pool(x).view(x.shape[0], -1))
     
 class ResNetEncoder(nn.Module):
     """Residual convolutional network (ResNet 18 architecture)"""
@@ -124,5 +126,7 @@ class ResNetEncoder(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Overloads forward method of nn.Module"""
-        latent = torch.cat([layer(x) for layer in self.resnet_list], dim=1)
-        return latent
+        latent_list = [layer(x) for layer in self.resnet_list]
+        spatial = torch.cat([spatial for spatial, _ in latent_list], dim=1)
+        repr = torch.cat([repr for _, repr in latent_list], dim=1)
+        return spatial, repr

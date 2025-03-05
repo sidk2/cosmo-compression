@@ -106,7 +106,7 @@ parser.add_argument(
 )
 parser.add_argument(
     "--eval_every",
-    default=200,
+    default=100,
     type=int,
     required=False,
     help="frequency of evaluating model, 0 to disable during training",
@@ -183,7 +183,7 @@ def train(args):
     fm = represent.Represent(
         log_wandb=args.use_wandb,
         unconditional=args.unconditional,
-        latent_img_channels = 32,
+        latent_img_channels = 1,
     )
         
     fm.apply(init_weights)
