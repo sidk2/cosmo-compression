@@ -176,9 +176,9 @@ class Represent(LightningModule):
             
             fig, ax = plt.subplots(2, 2, figsize=(8, 8))
             ax[0, 0].imshow(h[0, 0, : , :].detach().unsqueeze(-1).cpu().numpy())
-            ax[0, 1].imshow(h[0, 1, : , :].detach().unsqueeze(-1).cpu().numpy())
-            ax[1, 0].imshow(h[0, 2, : , :].detach().unsqueeze(-1).cpu().numpy())
-            ax[1, 1].imshow(h[0, 3, : , :].detach().unsqueeze(-1).cpu().numpy())
+            ax[0, 1].imshow(h[0, 32, : , :].detach().unsqueeze(-1).cpu().numpy())
+            ax[1, 0].imshow(h[0, 64, : , :].detach().unsqueeze(-1).cpu().numpy())
+            ax[1, 1].imshow(h[0, 96, : , :].detach().unsqueeze(-1).cpu().numpy())
             ax[0, 0].set_title("Encoder 1")
             ax[0, 1].set_title("Encoder 2")
             ax[1, 0].set_title("Encoder 3")
