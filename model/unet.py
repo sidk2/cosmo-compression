@@ -515,17 +515,17 @@ class UNet(nn.Module):
         x4 = self.sa3(x4)
         x4 = torch.cat([latent_ch4, x4], dim=1)
         x5 = self.down4(x4, t)
-        x5 = self.sa4(x5)
+        # x5 = self.sa4(x5)
 
         # Upsampling stages
         x = self.up0(x5, x4, t)
-        x = self.sa0_inv(x)
+        # x = self.sa0_inv(x)
         x = self.up1(x, x3, t)
-        x = self.sa1_inv(x)
+        # x = self.sa1_inv(x)
         x = self.up2(x, x2, t)
-        x = self.sa2_inv(x)
+        # x = self.sa2_inv(x)
         x = self.up3(x, x1, t)
-        x = self.sa3_inv(x)
+        # x = self.sa3_inv(x)
         output = self.outc(x)
 
         return output

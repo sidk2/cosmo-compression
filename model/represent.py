@@ -112,6 +112,7 @@ class Represent(LightningModule):
         # Train representation
         t = torch.rand((y.shape[0]), device = y.device)
         h = self.encoder(y) if not self.unconditional else None
+        
         x0 = torch.randn_like(y)
         decoder_loss = self.decoder.compute_loss(
             x0=x0,

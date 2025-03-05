@@ -155,6 +155,7 @@ def train(args):
     val_data = data.CAMELS(
         idx_list=range(14_000, 15_000),
         map_type='Mcdm',
+        dataset='LH',
         parameters=['Omega_m', 'sigma_8',],
     )
     val_loader = DataLoader(

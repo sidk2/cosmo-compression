@@ -168,4 +168,6 @@ class CAMELS(VisionDataset):
         y = (y - NORM_DICT[self.map_type][self.resolution]["mean"]) / NORM_DICT[
             self.map_type
         ][self.resolution]["std"]
+        
+        # Returns (image, parameters)
         return y, x
