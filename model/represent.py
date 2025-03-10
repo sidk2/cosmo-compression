@@ -97,7 +97,7 @@ class Represent(LightningModule):
         return unet.UNet(
             n_channels=1,
             time_dim=256,
-            latent_img_channels = 4*self.latent_img_channels,
+            latent_img_channels = 5*self.latent_img_channels,
         )
 
     def initialize_encoder(self, in_channels: int) -> nn.Module:
@@ -192,7 +192,7 @@ class Represent(LightningModule):
     def configure_optimizers(self) -> Dict[str, Any]:
         optimizer = torch.optim.AdamW(self.parameters(), lr=5e-5)
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, factor=0.5, patience=10
+            optimizer, factor=0.5, patience=10, min_lr=1e-8
         )
         return {
             "optimizer": optimizer,

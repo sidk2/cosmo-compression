@@ -16,7 +16,7 @@ import optuna
 
 from torchvision import transforms as T
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "4"
+os.environ["CUDA_VISIBLE_DEVICES"] = "5"
 
 def pct_error_loss(y_pred, y_true):
     return torch.mean(torch.abs((y_true - y_pred) / y_true))
@@ -24,13 +24,24 @@ def pct_error_loss(y_pred, y_true):
 wdm = True
 latent = True
 
-print("Performing parameter estimation with WDM = ", wdm, " and Latent = ", latent)
+print("Performing parameter estimation with WDM =", wdm, "and Latent =", latent)
 
-cdm_data = data.CAMELS(idx_list=range(0, 14000), parameters=['Omega_m', 'sigma_8', "A_SN1", "A_SN2", "A_AGN1","Wdm",], suite="IllustrisTNG" if wdm else "IllustrisTNG", dataset="WDM" if wdm else "LH", map_type="Mcdm")
-val_data = data.CAMELS(idx_list=range(14000, 15000), parameters=['Omega_m', 'sigma_8', "A_SN1", "A_SN2", "A_AGN1","Wdm",], suite="IllustrisTNG" if wdm else "IllustrisTNG", dataset="WDM" if wdm else "LH", map_type="Mcdm")
+cdm_data = data.CAMELS(
+    idx_list=range(0, 14000),
+    parameters=['Omega_m', 'sigma_8', "A_SN1", "A_SN2", "A_AGN1", "Wdm"],
+    suite="IllustrisTNG" if wdm else "Astrid",
+    dataset="WDM" if wdm else "LH",
+    map_type="Mcdm"
+)
+val_data = data.CAMELS(
+    idx_list=range(14000, 15000),
+    parameters=['Omega_m', 'sigma_8', "A_SN1", "A_SN2", "A_AGN1", "Wdm"],
+    suite="IllustrisTNG" if wdm else "Astrid",
+    dataset="WDM" if wdm else "LH",
+    map_type="Mcdm"
+)
 
-fm = represent.Represent.load_from_checkpoint("dropout_128/step=step=21300-val_loss=0.250.ckpt")
-# fm = represent.Represent.load_from_checkpoint("64_hier/step=step=60600-val_loss=0.268.ckpt")
+fm = represent.Represent.load_from_checkpoint("a_tale_of_2_latents_1ch_per_enc/step=step=33400-val_loss=0.375.ckpt")
 fm.encoder = fm.encoder.cuda()
 for p in fm.encoder.parameters():
     p.requires_grad = False
@@ -51,73 +62,73 @@ test_loader = DataLoader(
     num_workers=1,
     pin_memory=True,
 )
+
+# Build the encoded dataset using the latent vector output from the encoder
 encoded_images = []
-n_sampling_steps = 20
 with torch.no_grad():
     for images, _ in tqdm.tqdm(train_loader):
         images = images.cuda()
         if latent:
-            images = fm.encoder(images)
+            # Assume encoder returns (spatial_latent, latent_vector)
+            _, latent_vector = fm.encoder(images)
+            images = latent_vector
         encoded_images.append(images.cpu())
 
-# Concatenate the encoded images
 encoded_images = torch.cat(encoded_images, dim=0)
-
-# Create a new dataset with the encoded images
 train_dataset = TensorDataset(encoded_images, torch.tensor(cdm_data.x))
 
 encoded_images = []
-n_sampling_steps = 20
 with torch.no_grad():
     for images, _ in tqdm.tqdm(test_loader):
         images = images.cuda()
         if latent:
-            images = fm.encoder(images)
+            _, latent_vector = fm.encoder(images)
+            images = latent_vector
         encoded_images.append(images.cpu())
-
-# Concatenate the encoded images
 encoded_images = torch.cat(encoded_images, dim=0)
 test_dataset = TensorDataset(encoded_images, torch.tensor(val_data.x))
 
-
-# Create data loaders for the new dataset
+# Create new data loaders from the latent dataset
 train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
 test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False)
 
 print("Loaded data")
 
-# Training Setup
+# Set up training: use ParamEstVec for latent vector inference
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 if latent:
-    model = pe.ParamEstimatorLat(hidden=5, dr = 0.1, channels=128, output_size=(1 if wdm else 2)).to(device)
+    model = pe.ParamEstVec(hidden_dim=5, num_hiddens=5, in_dim=2048, output_size=(1 if wdm else 2)).to(device)
 else:
-    model = pe.ParamEstimatorImg(hidden=5, dr = 0.1, channels=1 if latent else 1, output_size=(1 if wdm else 2)).to(device)
+    model = pe.ParamEstimatorImg(hidden=5, dr=0.1, channels=1, output_size=(1 if wdm else 2)).to(device)
 
-criterion = nn.MSELoss()
+criterion = nn.L1Loss()
 
 def objective(trial):
-    # Define hyperparameters to optimize
-    lr = trial.suggest_loguniform('lr', 1e-6, 1e-3)
+    # Hyperparameter search space
+    lr = trial.suggest_loguniform('lr', 1e-6, 1e-1)
     weight_decay = trial.suggest_loguniform('weight_decay', 1e-8, 1e-4)
-    hidden = trial.suggest_int('hidden', 1, 10)
+    hidden_dim = trial.suggest_int('hidden_dim', 1, 2048)
+    hidden = trial.suggest_int('hidden', 1, 5)
+
     
-    # Initialize model, loss, and optimizer
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if latent:
-        model = pe.ParamEstimatorLat(hidden=5, dr = 0.1, channels=128, output_size=(1 if wdm else 2)).to(device)
+        model = pe.ParamEstVec(hidden_dim=hidden_dim, num_hiddens=hidden, in_dim=2048, output_size=(1 if wdm else 2)).to(device)
     else:
-        model = pe.ParamEstimatorImg(hidden=5, dr = 0.1, channels=1, output_size=(1 if wdm else 2)).to(device)
-    criterion = pct_error_loss
+        model = pe.ParamEstimatorImg(hidden=hidden, dr=0.1, channels=1, output_size=(1 if wdm else 2)).to(device)
+    
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     
-    # Training loop (reduced epochs for faster optimization)
-    num_epochs = 10  # Set lower for Optuna trials
+    num_epochs = 30  # Reduced epochs for faster Optuna trials
     best_val_loss = float('inf')
     
     for epoch in range(num_epochs):
         model.train()
         for images, labels in train_loader:
-            images, labels = images.to(device), (labels.to(device)[:, 0:2] if not wdm else labels.to(device)[:, -1].reshape(labels.shape[0], 1))
+            images, labels = images.to(device), (
+                labels.to(device)[:, 0:2] if not wdm 
+                else labels.to(device)[:, -1].reshape(labels.shape[0], 1)
+            )
             optimizer.zero_grad()
             outputs = model(images)
             loss = criterion(outputs, labels)
@@ -128,7 +139,10 @@ def objective(trial):
         val_loss = 0.0
         with torch.no_grad():
             for images, labels in test_loader:
-                images, labels = images.to(device), (labels.to(device)[:, 0:2] if not wdm else labels.to(device)[:, -1].reshape(labels.shape[0], 1))
+                images, labels = images.to(device), (
+                    labels.to(device)[:, 0:2] if not wdm 
+                    else labels.to(device)[:, -1].reshape(labels.shape[0], 1)
+                )
                 outputs = model(images)
                 loss = criterion(outputs, labels)
                 val_loss += loss.item()
@@ -139,31 +153,31 @@ def objective(trial):
     
     return best_val_loss
 
-# Run Optuna optimization
-# study = optuna.create_study(direction='minimize')
-# study.optimize(objective, n_trials=20)
+# Uncomment below to run Optuna optimization
+study = optuna.create_study(direction='minimize')
+study.optimize(objective, n_trials=50)
+best_params = study.best_params
+print("Best hyperparameters:", best_params)
 
-# # Get best hyperparameters
-# best_params = study.best_params
-# print("Best hyperparameters:", best_params)
-
-# # Train final model with best hyperparameters
+# Train final model using ParamEstVec with chosen hyperparameters
 if latent:
-    model = pe.ParamEstimatorLat(hidden=5, dr = 0.1, channels=128, output_size=(1 if wdm else 2)).to(device)
+    model = pe.ParamEstVec(hidden_dim=best_params['hidden_dim'], num_hiddens=best_params['hidden'], in_dim=2048, output_size=(1 if wdm else 2)).to(device)
 else:
-    model = pe.ParamEstimatorImg(hidden=5, dr = 0.1, channels=1, output_size=(1 if wdm else 2)).to(device)
+    model = pe.ParamEstimatorImg(hidden=5, dr=0.1, channels=1, output_size=(1 if wdm else 2)).to(device)
 
-final_optimizer = optim.Adam(model.parameters(), lr=0.0009425213281205723, weight_decay=4.3833691213012614e-05)
+final_optimizer = optim.Adam(model.parameters(), lr=best_params['lr'], weight_decay=best_params['weight_decay'])
 scheduler = optim.lr_scheduler.StepLR(final_optimizer, step_size=20, gamma=0.5)
 
 best_loss = float('inf')
-# Training Loop
-num_epochs = 50
+num_epochs = 200
 for epoch in range(num_epochs):
     model.train()
     running_loss = 0.0
     for images, labels in train_loader:
-        images, labels = images.to(device), (labels.to(device)[:, 0:2] if not wdm else  1 / labels.to(device)[:, -1].reshape(labels.shape[0], 1))
+        images, labels = images.to(device), (
+            labels.to(device)[:, 0:2] if not wdm 
+            else 1 / labels.to(device)[:, -1].reshape(labels.shape[0], 1)
+        )
         final_optimizer.zero_grad()
         outputs = model(images)
         loss = criterion(outputs, labels)
@@ -174,7 +188,10 @@ for epoch in range(num_epochs):
     model.eval()
     val_loss = 0.0
     for images, labels in test_loader:
-        images, labels = images.to(device), (labels.to(device)[:, 0:2] if not wdm else 1 / labels.to(device)[:, -1].reshape(labels.shape[0], 1))
+        images, labels = images.to(device), (
+            labels.to(device)[:, 0:2] if not wdm 
+            else 1 / labels.to(device)[:, -1].reshape(labels.shape[0], 1)
+        )
         outputs = model(images)
         loss = criterion(outputs, labels)
         val_loss += loss.item()
@@ -187,7 +204,6 @@ for epoch in range(num_epochs):
     print(f"Epoch {epoch+1}/{num_epochs}, Loss: {running_loss/len(train_loader):.4f}, Val Loss: {val_loss:.4f}")
     scheduler.step()
 
-
 model.load_state_dict(torch.load(f'pe_params_wdm_{wdm}_latent_{latent}.pt'))
 
 # Evaluate model and plot results
@@ -195,12 +211,13 @@ model.eval()
 true_params = []
 pred_params = []
 
-l1_loss = 0
 with torch.no_grad():
     for images, labels in test_loader:
-        images, labels = images.to(device), (labels.to(device)[:, 0:2] if not wdm else 1 / labels.to(device)[:, -1].reshape(labels.shape[0], 1))
+        images, labels = images.to(device), (
+            labels.to(device)[:, 0:2] if not wdm 
+            else 1 / labels.to(device)[:, -1].reshape(labels.shape[0], 1)
+        )
         outputs = model(images)
-        l1_loss += (torch.mean(torch.abs(outputs - 1 / labels) / (1 / labels))).item()
         true_params.extend(labels.cpu().numpy())
         pred_params.extend(outputs.cpu().numpy())
 
@@ -208,36 +225,42 @@ true_params = np.array(true_params)
 pred_params = np.array(pred_params)
 
 plt.figure(figsize=(10, 5))
+plot_labels = ['Omega_m', 'sigma_8'] if not wdm else ['WDM']
 
-labels = ['Omega_m', 'sigma_8'] if not wdm else ['WDM']
-
-for i, param_name in enumerate(labels):
-    l1_loss = 0
+for i, param_name in enumerate(plot_labels):
+    l1_loss_param = 0
     with torch.no_grad():
         for images, labels in test_loader:
-            images, labels = images.to(device), (labels.to(device)[:, 0:2] if not wdm else 1 / labels.to(device)[:, -1].reshape(labels.shape[0], 1))
+            images, labels = images.to(device), (
+                labels.to(device)[:, 0:2] if not wdm 
+                else 1 / labels.to(device)[:, -1].reshape(labels.shape[0], 1)
+            )
             outputs = model(images)
-            l1_loss += (torch.mean(torch.abs(outputs[:, i] - 1 / labels[:, i]) / (1 / labels[:, i]))).item()
-        print(f"Average Relative Accuracy for WDM {wdm} with Latent {latent}, for {param_name}: {l1_loss/len(test_loader)}")
+            l1_loss_param += (torch.mean(torch.abs((outputs[:, i] - labels[:, i]) / labels[:, i]))).item()
+        print(f"Average Relative Error for WDM {wdm} with Latent {latent}, for {param_name}: {l1_loss_param/len(test_loader)}")
     
-    x = true_params[:, i] if not wdm else true_params
-    y = pred_params[:, i] if not wdm else pred_params
+    if wdm:
+        x = true_params
+        y = pred_params
+    else:
+        x = true_params[:, i]
+        y = pred_params[:, i]
+        
     plt.subplot(1, 2, i+1)
-    
-    print(x.shape, y.shape)
-    plt.scatter(x, y, alpha=0.1)
+    plt.scatter(x, y, alpha=0.2)
     
     # Compute and plot line of best fit
-    slope, intercept = np.polyfit(x[:, 0], y[:, 0], 1)
-    best_fit_line = slope * x + intercept
-    plt.plot(x, best_fit_line, 'b-', label=f'Fit: y={slope:.2f}x')
-    print(f"Slope for {param_name}: {slope:.2f}")
+    if not wdm:
+        slope, intercept = np.polyfit(x, y, 1)
+        best_fit_line = slope * x + intercept
+        plt.plot(x, best_fit_line, 'b-', label=f'Fit: y={slope:.2f}x')
+    else:
+        slope, intercept = np.polyfit(x[:, 0], y[:, 0], 1)
+        best_fit_line = slope * x + intercept
+        plt.plot(x, best_fit_line, 'b-', label=f'Fit: y={slope:.2f}x')
     
-    # Plot y=x reference line
     min_val, max_val = x.min(), x.max()
     plt.plot([min_val, max_val], [min_val, max_val], 'r--', label='y=x')
-    
-    # Set equal axis limits
     plt.xlim(min_val, max_val)
     plt.ylim(min_val, max_val)
     
