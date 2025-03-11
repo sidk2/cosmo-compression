@@ -506,7 +506,7 @@ class UNet(nn.Module):
         
         x1 = torch.cat([latent_ch1, x1], dim=1)
         x2 = self.down1(x1, t)
-        x2 = self.sa1(x2)
+        # x2 = self.sa1(x2)
         x2 = torch.cat([latent_ch2, x2], dim=1)
         x3 = self.down2(x2, t)
         x3 = self.sa2(x3)
