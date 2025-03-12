@@ -12,12 +12,16 @@ from sklearn.manifold import TSNE
 import torch
 from torch import nn
 import wandb
+import lzma
 
 from torchvision import transforms as T
 
 from cosmo_compression.model import flow_matching as fm
 from cosmo_compression.model import unet
 from cosmo_compression.model import resnet
+
+# entropy modelling
+from compressai.entropy_models import EntropyBottleneck
 
 def compute_pk(
     mesh: np.array,
@@ -88,6 +92,7 @@ class Represent(LightningModule):
         self.log_wandb = log_wandb
         self.latent_img_channels = latent_img_channels
         self.encoder = self.initialize_encoder(in_channels=1)
+        self.entropy_bottleneck = EntropyBottleneck(64)
         velocity_model = self.initialize_velocity()
         self.decoder = fm.FlowMatching(velocity_model, reverse=reverse)
         self.validation_step_outputs = []
@@ -113,36 +118,63 @@ class Represent(LightningModule):
         t = torch.rand((y.shape[0]), device = y.device)
         h = self.encoder(y) if not self.unconditional else None
         
+        # apply entropy bottleneck
+        h_hat, h_likelihoods = self.entropy_bottleneck(h) 
+
+        # bpp loss
+        num_pixels = y.size(0) * y.size(2) * y.size(3)
+        bpp_loss = torch.log(h_likelihoods).sum() / (-math.log(2) * num_pixels)
+        
         x0 = torch.randn_like(y)
+        
+        # decoder takes h_hat, the decompressed version h 
         decoder_loss = self.decoder.compute_loss(
             x0=x0,
             x1=y,
             h=h,
             t=t,
         )
-        return decoder_loss
+        return decoder_loss, bpp_loss
+
+    def lossless_latent_compress(
+        self,
+        batch: Tuple[torch.Tensor, torch.Tensor],
+    ) -> torch.Tensor:
+        y, cosmo = batch
+                
+        # only compress the first frame in a batch to save time
+        h = self.encoder(y) if not self.unconditional else None
+        
+        h_np = h[0,:,:,:].detach().cpu().numpy()
+        compressed_bytes = lzma.compress(h_np)
+        lossless_latent_bpp = len(compressed_bytes) * 8 / (256*256)
+        return torch.tensor(lossless_latent_bpp).to
 
     def training_step(
         self,
         batch: Tuple[np.array, np.array],
     ) -> torch.Tensor | int:
         self.optimizers().step()
-        loss = self.get_loss(batch=batch)
-        self.log("train_loss", loss, prog_bar=True, sync_dist=True)
+        loss, bpp_loss = self.get_loss(batch=batch)
+        self.log_dict({"train_loss": loss, "bpp_loss": bpp_loss}, prog_bar=True, sync_dist=True)
         return loss
 
     def validation_step(
         self,
         batch: Tuple[np.array, np.array],
     ) -> None:
-        loss = self.get_loss(batch=batch)
-        self.validation_step_outputs.append({"val_loss": loss, "batch": batch})
+        loss, bpp_loss = self.get_loss(batch=batch)
+        # lossless_latent_bpp = self.lossless_latent_compress(batch=batch)
+        self.validation_step_outputs.append({"val_loss": loss, "bpp_loss": bpp_loss, "batch": batch})
 
     def on_validation_epoch_end(self) -> None:
         mean_val_loss = torch.stack(
             [output["val_loss"] for output in self.validation_step_outputs]
         ).mean()
-        self.log("val_loss", mean_val_loss, prog_bar=True, sync_dist=True)
+        mean_val_bpp_loss = torch.stack(
+            [output["bpp_loss"] for output in self.validation_step_outputs]
+        ).mean()
+        self.log_dict({"val_loss": mean_val_loss, "val_bpp_loss": mean_val_bpp_loss}, prog_bar=True, sync_dist=True)
         batch = self.validation_step_outputs[0]["batch"]
         self._log_figures(batch, log=self.log_wandb)
         self.validation_step_outputs.clear()
@@ -157,10 +189,10 @@ class Represent(LightningModule):
     ) -> None:
         y, cosmo = batch
         h = self.encoder(y)
-        x0 = torch.randn_like(y)
+        x0 = torch.randn_like(y[0:1,:,:,:])
         pred = self.decoder.predict(
             x0,
-            h=h,
+            h=h[0:1,:,:,:],
             n_sampling_steps=50,
         )
         if log:
@@ -187,6 +219,14 @@ class Represent(LightningModule):
             plt.savefig("cosmo_compression/results/latents.png")
             log_matplotlib_figure("latents")
             plt.close()
+
+            # lossless compression of latent
+            h_np = h[0,:,:,:].detach().cpu().numpy()
+            compressed_bytes = lzma.compress(h_np)
+            lossless_latent_bpp = len(compressed_bytes) * 8 / (256*256)
+            # wandb.log({"lossless_latent_bpp": lossless_latent_bpp})
+            self.log("lossless_latent_bpp", lossless_latent_bpp)
+
 
     def configure_optimizers(self) -> Dict[str, Any]:
         optimizer = torch.optim.AdamW(self.parameters(), lr=5e-5)
