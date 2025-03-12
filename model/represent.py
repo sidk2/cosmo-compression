@@ -19,6 +19,7 @@ from torchvision import transforms as T
 from cosmo_compression.model import flow_matching as fm
 from cosmo_compression.model import unet
 from cosmo_compression.model import resnet
+from cosmo_compression.data import data
 
 # entropy modelling
 from compressai.entropy_models import EntropyBottleneck
@@ -224,7 +225,39 @@ class Represent(LightningModule):
             h_np = h[0,:,:,:].detach().cpu().numpy()
             compressed_bytes = lzma.compress(h_np)
             lossless_latent_bpp = len(compressed_bytes) * 8 / (256*256)
-            # wandb.log({"lossless_latent_bpp": lossless_latent_bpp})
+
+            # plot spectrum
+            mean = data.NORM_DICT["Mcdm"][256]["mean"]
+            std = data.NORM_DICT["Mcdm"][256]["std"]
+
+            # get original spectrum. y is [32, 1, 256, 256]
+            y_denorm = y.cpu().numpy()[0,0,:,:] * std + mean     
+            delta_fields_orig_1 = y_denorm / np.mean(y_denorm) - 1
+            Pk2D = PKL.Pk_plane(delta_fields_orig_1, 25.0, "None", 1, verbose=False)
+            k_orig = Pk2D.k
+            Pk_orig = Pk2D.Pk
+
+
+            # get distorted spectrum
+            pred = (pred).cpu().numpy()[0, 0, :, :] * std + mean
+            delta_fields_pred_1 = pred / np.mean(y_denorm) - 1
+            Pk2D = PKL.Pk_plane(delta_fields_pred_1, 25.0, "None", 1, verbose=False)
+            k_pred = Pk2D.k
+            Pk_pred = Pk2D.Pk
+            
+            fig, ax = plt.subplots(figsize=(4, 4))
+            line_orig, = ax.plot(k_orig, Pk_orig, label="Original")
+            line_pred, = ax.plot(k_pred, Pk_pred, label="Reconstructed")
+            ax.set_xscale("log")
+            ax.set_yscale("log")
+            ax.set_title("Power Spectra")
+            ax.set_xlabel("Wavenumber $k\,[h/Mpc]$")
+            ax.set_ylabel("$P(k)\,[(Mpc/h)^2]$")
+            ax.legend()
+            plt.savefig("cosmo_compression/results/spectrum.png")
+            log_matplotlib_figure("spectrum")
+            plt.close()
+
             self.log("lossless_latent_bpp", lossless_latent_bpp)
 
 
