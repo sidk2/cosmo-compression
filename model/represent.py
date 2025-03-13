@@ -86,6 +86,7 @@ class Represent(LightningModule):
         log_wandb: bool = True,
         reverse: bool = False,
         latent_img_channels: int = 64,
+        lmb: float = 0.0,
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -97,6 +98,7 @@ class Represent(LightningModule):
         velocity_model = self.initialize_velocity()
         self.decoder = fm.FlowMatching(velocity_model, reverse=reverse)
         self.validation_step_outputs = []
+        self.lmb = lmb
         
 
     def initialize_velocity(self) -> nn.Module:
@@ -132,7 +134,7 @@ class Represent(LightningModule):
         decoder_loss = self.decoder.compute_loss(
             x0=x0,
             x1=y,
-            h=h,
+            h=h_hat,
             t=t,
         )
         return decoder_loss, bpp_loss
@@ -156,26 +158,43 @@ class Represent(LightningModule):
         batch: Tuple[np.array, np.array],
     ) -> torch.Tensor | int:
         self.optimizers().step()
-        loss, bpp_loss = self.get_loss(batch=batch)
-        self.log_dict({"train_loss": loss, "bpp_loss": bpp_loss}, prog_bar=True, sync_dist=True)
-        return loss
+        decoder_loss, bpp_loss = self.get_loss(batch=batch)
+        aux_loss = self.entropy_bottleneck.loss()
+
+        if self.lmb==0.0:
+            total_loss = decoder_loss
+        else:
+            total_loss = decoder_loss + self.lmb * bpp_loss
+
+        self.log_dict({"decoder_loss": decoder_loss, "bpp_loss": bpp_loss, "total_loss": total_loss}, prog_bar=True, sync_dist=True)
+
+        # manual optimize
+        
+        return total_loss
 
     def validation_step(
         self,
         batch: Tuple[np.array, np.array],
     ) -> None:
-        loss, bpp_loss = self.get_loss(batch=batch)
+        decoder_loss, bpp_loss = self.get_loss(batch=batch)
+        if self.lmb==0.0:
+            total_loss = decoder_loss
+        else:
+            total_loss = decoder_loss + self.lmb * bpp_loss
         # lossless_latent_bpp = self.lossless_latent_compress(batch=batch)
-        self.validation_step_outputs.append({"val_loss": loss, "bpp_loss": bpp_loss, "batch": batch})
+        self.validation_step_outputs.append({"decoder_loss": decoder_loss, "bpp_loss": bpp_loss, "total_loss": total_loss, "batch": batch})
 
     def on_validation_epoch_end(self) -> None:
         mean_val_loss = torch.stack(
-            [output["val_loss"] for output in self.validation_step_outputs]
+            [output["decoder_loss"] for output in self.validation_step_outputs]
         ).mean()
         mean_val_bpp_loss = torch.stack(
             [output["bpp_loss"] for output in self.validation_step_outputs]
         ).mean()
-        self.log_dict({"val_loss": mean_val_loss, "val_bpp_loss": mean_val_bpp_loss}, prog_bar=True, sync_dist=True)
+        mean_val_total_loss = torch.stack(
+            [output["total_loss"] for output in self.validation_step_outputs]
+        ).mean()
+        self.log_dict({"val_loss": mean_val_loss, "val_bpp_loss": mean_val_bpp_loss, "val_total_loss": mean_val_total_loss}, prog_bar=True, sync_dist=True)
         batch = self.validation_step_outputs[0]["batch"]
         self._log_figures(batch, log=self.log_wandb)
         self.validation_step_outputs.clear()
@@ -190,10 +209,11 @@ class Represent(LightningModule):
     ) -> None:
         y, cosmo = batch
         h = self.encoder(y)
+        h_hat, h_likelihoods = self.entropy_bottleneck(h) 
         x0 = torch.randn_like(y[0:1,:,:,:])
         pred = self.decoder.predict(
             x0,
-            h=h[0:1,:,:,:],
+            h=h_hat[0:1,:,:,:],
             n_sampling_steps=50,
         )
         if log:
@@ -269,5 +289,5 @@ class Represent(LightningModule):
         return {
             "optimizer": optimizer,
             "lr_scheduler": scheduler,
-            "monitor": "val_loss",
+            "monitor": "val_total_loss",
         }
