@@ -17,6 +17,8 @@ import torch.nn as nn
 import wandb
 import os
 
+os.environ["CUDA_VISIBLE_DEVICES"] = "3, 4"
+
 from cosmo_compression.model import represent
 from cosmo_compression.data import data
 

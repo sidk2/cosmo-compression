@@ -97,7 +97,7 @@ class Represent(LightningModule):
         return unet.UNet(
             n_channels=1,
             time_dim=256,
-            latent_img_channels = self.latent_img_channels,
+            latent_img_channels = 4*self.latent_img_channels,
         )
 
     def initialize_encoder(self, in_channels: int) -> nn.Module:
@@ -174,6 +174,7 @@ class Represent(LightningModule):
             log_matplotlib_figure("field_reconstruction")
             plt.close()
             
+            h, _ = h
             fig, ax = plt.subplots(2, 2, figsize=(8, 8))
             ax[0, 0].imshow(h[0, 0, : , :].detach().unsqueeze(-1).cpu().numpy())
             ax[0, 1].imshow(h[0, 1, : , :].detach().unsqueeze(-1).cpu().numpy())

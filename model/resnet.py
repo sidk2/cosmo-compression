@@ -122,7 +122,7 @@ class ResNetEncoder(nn.Module):
         )
         
         self.pool = nn.AdaptiveAvgPool2d((1, 1))
-        self.fc = nn.Linear(latent_img_channels, fc_out_dim)
+        self.fc = nn.Linear(latent_img_channels*4, fc_out_dim)
         
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Overloads forward method of nn.Module"""
@@ -130,7 +130,6 @@ class ResNetEncoder(nn.Module):
         for resnet in self.resnet_list:
             spatial = resnet(x)
             spatial_list.append(spatial)
-        spatial_list = torch.tensor(spatial_list)
         
         spatial_latent = torch.cat(spatial_list, dim=1)
         return spatial_latent, self.fc(self.pool(spatial_latent).squeeze())
