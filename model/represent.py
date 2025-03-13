@@ -174,8 +174,6 @@ class Represent(LightningModule):
             log_matplotlib_figure("field_reconstruction")
             plt.close()
             
-            h, repr = h
-            
             fig, ax = plt.subplots(2, 2, figsize=(8, 8))
             ax[0, 0].imshow(h[0, 0, : , :].detach().unsqueeze(-1).cpu().numpy())
             ax[0, 1].imshow(h[0, 1, : , :].detach().unsqueeze(-1).cpu().numpy())

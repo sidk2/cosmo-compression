@@ -478,7 +478,7 @@ class UNet(nn.Module):
             padding=0,
             bias=True,
         )
-        self.in_channel_upsampler = nn.ModuleList(
+        self.latent_upsampler_0 = nn.ModuleList(
             [
                 UpStepWoutRes(
                     in_channels=int(self.num_latent_channels // 1),
@@ -503,50 +503,50 @@ class UNet(nn.Module):
             ]
         )
         
-        # self.latent_upsampler_1 = nn.ModuleList(
-        #     [
-        #         UpStepWoutRes(
-        #             in_channels=int(self.num_latent_channels // 1),
-        #             out_channels=int(self.num_latent_channels // 1),
-        #             time_dim=time_dim,
-        #         ),
-        #         UpStepWoutRes(
-        #             in_channels=int(self.num_latent_channels // 1),
-        #             out_channels=int(self.num_latent_channels // 1),
-        #             time_dim=time_dim,
-        #         ),
-        #         UpStepWoutRes(
-        #             in_channels=int(self.num_latent_channels // 1),
-        #             out_channels=int(self.num_latent_channels // 1),
-        #             time_dim=time_dim,
-        #         ),
-        #     ]
-        # )
+        self.latent_upsampler_1 = nn.ModuleList(
+            [
+                UpStepWoutRes(
+                    in_channels=int(self.num_latent_channels // 1),
+                    out_channels=int(self.num_latent_channels // 1),
+                    time_dim=time_dim,
+                ),
+                UpStepWoutRes(
+                    in_channels=int(self.num_latent_channels // 1),
+                    out_channels=int(self.num_latent_channels // 1),
+                    time_dim=time_dim,
+                ),
+                UpStepWoutRes(
+                    in_channels=int(self.num_latent_channels // 1),
+                    out_channels=int(self.num_latent_channels // 1),
+                    time_dim=time_dim,
+                ),
+            ]
+        )
         
-        # self.latent_upsampler_2 = nn.ModuleList(
-        #     [
-        #         UpStepWoutRes(
-        #             in_channels=int(self.num_latent_channels // 1),
-        #             out_channels=int(self.num_latent_channels // 1),
-        #             time_dim=time_dim,
-        #         ),
-        #         UpStepWoutRes(
-        #             in_channels=int(self.num_latent_channels // 1),
-        #             out_channels=int(self.num_latent_channels // 1),
-        #             time_dim=time_dim,
-        #         ),
-        #     ]
-        # )
+        self.latent_upsampler_2 = nn.ModuleList(
+            [
+                UpStepWoutRes(
+                    in_channels=int(self.num_latent_channels // 1),
+                    out_channels=int(self.num_latent_channels // 1),
+                    time_dim=time_dim,
+                ),
+                UpStepWoutRes(
+                    in_channels=int(self.num_latent_channels // 1),
+                    out_channels=int(self.num_latent_channels // 1),
+                    time_dim=time_dim,
+                ),
+            ]
+        )
         
-        # self.latent_upsampler_3 = nn.ModuleList(
-        #     [
-        #         UpStepWoutRes(
-        #             in_channels=int(self.num_latent_channels // 1),
-        #             out_channels=int(self.num_latent_channels // 1),
-        #             time_dim=time_dim,
-        #         ),
-        #     ]
-        # )
+        self.latent_upsampler_3 = nn.ModuleList(
+            [
+                UpStepWoutRes(
+                    in_channels=int(self.num_latent_channels // 1),
+                    out_channels=int(self.num_latent_channels // 1),
+                    time_dim=time_dim,
+                ),
+            ]
+        )
 
         self.latent_vec_dim = latent_vec_dim
 
@@ -579,38 +579,38 @@ class UNet(nn.Module):
 
         spatial, repr = z
         
-        # upsampled_spatial = torch.zeros((spatial.shape[0], spatial.shape[1], x.shape[2], x.shape[3]), device=spatial.device)
+        upsampled_spatial = torch.zeros((spatial.shape[0], spatial.shape[1], x.shape[2], x.shape[3]), device=spatial.device)
 
         # Upsample the latents back to original image size
         for layer in self.latent_upsampler_0:
-            spatial = layer(spatial)
+            upsampled_spatial[:, 0, :, :] = layer(spatial[:, 0, :, :])
             
-        # for layer in self.latent_upsampler_1:
-        #     upsampled_spatial[:, 1, :, :] = layer(spatial[:, 1, :, :])
+        for layer in self.latent_upsampler_1:
+            upsampled_spatial[:, 1, :, :] = layer(spatial[:, 1, :, :])
             
-        # for layer in self.latent_upsampler_2:
-        #     upsampled_spatial[:, 2, :, :] = layer(spatial[:, 2, :, :])
+        for layer in self.latent_upsampler_2:
+            upsampled_spatial[:, 2, :, :] = layer(spatial[:, 2, :, :])
             
-        # for layer in self.latent_upsampler_3:
-        #     upsampled_spatial[:, 3, :, :] = layer(spatial[:, 3, :, :])
+        for layer in self.latent_upsampler_3:
+            upsampled_spatial[:, 3, :, :] = layer(spatial[:, 3, :, :])
 
-        # spatial = upsampled_spatial
+        spatial = upsampled_spatial
         
         # Downsampling stages
         x1 = self.inc(x, t, repr[:, 0 : 256])
-        x1 = torch.cat([spatial, x1], dim=1)
+        x1 = torch.cat([spatial[:, 0, :, :], x1], dim=1)
         x2 = self.down1(x1, t, repr[:, 256: 512])
-        # x2 = torch.cat([spatial[:, 1, :, :], x2], dim=1)
+        x2 = torch.cat([spatial[:, 1, :, :], x2], dim=1)
         x3 = self.down2(
             x2, t, repr[:, 512: 768]
         )
         x3 = self.sa2(x3)
-        # x3 = torch.cat([spatial[:, 2, :, :], x3], dim=1)
+        x3 = torch.cat([spatial[:, 2, :, :], x3], dim=1)
         x4 = self.down3(
             x3, t, repr[:, 768: 1024]
         )
         x4 = self.sa3(x4)
-        # x4 = torch.cat([spatial[:, 3, :, :], x4], dim=1)
+        x4 = torch.cat([spatial[:, 3, :, :], x4], dim=1)
         x5 = self.down4(
             x4, t, repr[:, 1024: 1280]
         )

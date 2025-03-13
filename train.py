@@ -181,7 +181,7 @@ def train(args):
     fm = represent.Represent(
         log_wandb=args.use_wandb,
         unconditional=args.unconditional,
-        latent_img_channels = 4,
+        latent_img_channels = 1,
     )
         
     fm.apply(init_weights)

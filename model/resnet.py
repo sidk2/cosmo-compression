@@ -63,7 +63,7 @@ class ResnetBlock(nn.Module):
 class ResNet(nn.Module):
     """Residual convolutional network (ResNet 18 architecture)"""
 
-    def __init__(self, in_channels: int, latent_img_channels: int = 32, blur_kernel_size = 1, fc_out_dim: int = 256 * 9):
+    def __init__(self, in_channels: int, latent_img_channels: int = 32, blur_kernel_size = 1, fc_out_dim: int = 256 * 2):
         super(ResNet, self).__init__()
         # CAMELS Multifield Dataset is 256x256
         self.in_layer = nn.Sequential(
@@ -92,9 +92,6 @@ class ResNet(nn.Module):
             ]
         )
         
-        self.pool = nn.AdaptiveAvgPool2d((1, 1))
-        self.fc = nn.Linear(latent_img_channels, fc_out_dim)
-        
 
     def _make_layer(self, in_channels: int, out_channels: int, num_blocks: int, stride: int) -> nn.Sequential:
         strides = [stride] + [1] * (num_blocks - 1)
@@ -108,7 +105,6 @@ class ResNet(nn.Module):
         x = self.in_layer(x)
         for i, layer in enumerate(self.resnet_layers):
             x = layer(x)
-            
         return x
     
 class ResNetEncoder(nn.Module):
@@ -116,8 +112,25 @@ class ResNetEncoder(nn.Module):
 
     def __init__(self, in_channels: int, latent_img_channels: int = 32, fc_out_dim: int = 256 * 9):
         super(ResNetEncoder, self).__init__()
-        self.resnet = ResNet(in_channels=in_channels, latent_img_channels=latent_img_channels, fc_out_dim=fc_out_dim)
+        self.resnet_list = nn.ModuleList(
+            [
+                ResNet(in_channels=in_channels, latent_img_channels=latent_img_channels, blur_kernel_size = 1),
+                ResNet(in_channels=in_channels, latent_img_channels=latent_img_channels, blur_kernel_size = 1),
+                ResNet(in_channels=in_channels, latent_img_channels=latent_img_channels, blur_kernel_size = 1),
+                ResNet(in_channels=in_channels, latent_img_channels=latent_img_channels, blur_kernel_size = 1),
+            ]
+        )
+        
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc = nn.Linear(latent_img_channels, fc_out_dim)
         
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Overloads forward method of nn.Module"""
-        return self.resnet(x)
+        spatial_list = []
+        for resnet in self.resnet_list:
+            spatial = resnet(x)
+            spatial_list.append(spatial)
+        spatial_list = torch.tensor(spatial_list)
+        
+        spatial_latent = torch.cat(spatial_list, dim=1)
+        return spatial_latent, self.fc(self.pool(spatial_latent).squeeze())
