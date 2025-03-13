@@ -106,7 +106,7 @@ parser.add_argument(
 )
 parser.add_argument(
     "--eval_every",
-    default=100,
+    default=50,
     type=int,
     required=False,
     help="frequency of evaluating model, 0 to disable during training",
@@ -126,7 +126,6 @@ parser.add_argument('--profile', action='store_true', default=False, help='Set t
 def train(args):
     # fix training seed
     seed_everything(137, workers=True)
-    dataset = 'CAMELS' # Hard coded for now, make a command line arg
 
     logger = None
     if args.use_wandb:
@@ -137,11 +136,10 @@ def train(args):
         run_name = "test_run"  # You can set a default name for non-logging runs
         print(f"Running without Weights and Biases logging.")
 
-    dataset == 'CAMELS'
     train_data = data.CAMELS(
-    idx_list=range(14_000),
-    map_type='Mcdm',
-    parameters=['Omega_m', 'sigma_8',],
+        idx_list=range(14_000),
+        map_type='Mcdm',
+        parameters=['Omega_m', 'sigma_8',],
     )
     train_loader = DataLoader(
         train_data,
@@ -183,7 +181,7 @@ def train(args):
     fm = represent.Represent(
         log_wandb=args.use_wandb,
         unconditional=args.unconditional,
-        latent_img_channels = 1,
+        latent_img_channels = 4,
     )
         
     fm.apply(init_weights)
@@ -196,7 +194,7 @@ def train(args):
         log_every_n_steps=50,
         accumulate_grad_batches=args.accumulate_gradients if args.accumulate_gradients is not None else 1,
         callbacks=[checkpoint_callback_phase_0, lr_monitor],
-        devices=4,
+        devices=2,
         check_val_every_n_epoch=None,
         val_check_interval=args.eval_every,
         max_epochs=300,
