@@ -159,7 +159,7 @@ class Represent(LightningModule):
     ) -> torch.Tensor | int:
         self.optimizers().step()
         decoder_loss, bpp_loss = self.get_loss(batch=batch)
-        aux_loss = self.entropy_bottleneck.loss()
+        # aux_loss = self.entropy_bottleneck.loss() not needed, can optimize post training
 
         if self.lmb==0.0:
             total_loss = decoder_loss
@@ -167,8 +167,6 @@ class Represent(LightningModule):
             total_loss = decoder_loss + self.lmb * bpp_loss
 
         self.log_dict({"decoder_loss": decoder_loss, "bpp_loss": bpp_loss, "total_loss": total_loss}, prog_bar=True, sync_dist=True)
-
-        # manual optimize
         
         return total_loss
 
@@ -227,6 +225,10 @@ class Represent(LightningModule):
             plt.savefig("cosmo_compression/results/field_reconstruction.png")
             log_matplotlib_figure("field_reconstruction")
             plt.close()
+
+            # log field MSE
+            field_MSE = np.mean((y[0, :, : , :].detach().cpu().permute(1, 2, 0).numpy() - pred[0, :, : , :].detach().cpu().permute(1, 2, 0).numpy()) ** 2)
+            self.log("field_MSE", field_MSE)
             
             fig, ax = plt.subplots(2, 2, figsize=(8, 8))
             ax[0, 0].imshow(h[0, 0, : , :].detach().unsqueeze(-1).cpu().numpy())
@@ -245,6 +247,7 @@ class Represent(LightningModule):
             h_np = h[0,:,:,:].detach().cpu().numpy()
             compressed_bytes = lzma.compress(h_np)
             lossless_latent_bpp = len(compressed_bytes) * 8 / (256*256)
+            self.log("lossless_latent_bpp", lossless_latent_bpp)
 
             # plot spectrum
             mean = data.NORM_DICT["Mcdm"][256]["mean"]
@@ -256,7 +259,6 @@ class Represent(LightningModule):
             Pk2D = PKL.Pk_plane(delta_fields_orig_1, 25.0, "None", 1, verbose=False)
             k_orig = Pk2D.k
             Pk_orig = Pk2D.Pk
-
 
             # get distorted spectrum
             pred = (pred).cpu().numpy()[0, 0, :, :] * std + mean
@@ -278,7 +280,11 @@ class Represent(LightningModule):
             log_matplotlib_figure("spectrum")
             plt.close()
 
-            self.log("lossless_latent_bpp", lossless_latent_bpp)
+            # log spectrum MSE (original and log scale)
+            spectrum_MSE = np.mean((Pk_orig - Pk_pred) ** 2)
+            log_spectrum_MSE = np.mean((np.log10(Pk_orig) - np.log10(Pk_pred)) ** 2)
+            self.log("spectrum_MSE", spectrum_MSE)
+            self.log("log_spectrum_MSE", log_spectrum_MSE)
 
 
     def configure_optimizers(self) -> Dict[str, Any]:

@@ -121,6 +121,14 @@ parser.add_argument(
     required=False,
 )
 
+parser.add_argument(
+    "--lmb",
+    default=0,
+    type=float,
+    required=False,
+    help="loss = train_loss + lmb * bpp_loss",
+)
+
 # Extras
 parser.add_argument('--use_wandb', action='store_true', default=False, help='Set this flag to use Weights and Biases for logging')
 parser.add_argument('--profile', action='store_true', default=False, help='Set this flag to use a profiler')
@@ -170,9 +178,9 @@ def train(args):
 
     checkpoint_callback_phase_0 = ModelCheckpoint(
         dirpath=Path(args.output_dir) / f'{run_name}',
-        filename='step={step}-{val_loss:.3f}',
+        filename='step={step}-{val_total_loss:.3f}',
         save_top_k=1,
-        monitor='val_loss',
+        monitor='val_total_loss',
         save_last=True,
         every_n_train_steps=args.save_every,
     )
@@ -187,6 +195,7 @@ def train(args):
         log_wandb=args.use_wandb,
         unconditional=args.unconditional,
         latent_img_channels = 16,
+        lmb = args.lmb, 
     )
         
     fm.apply(init_weights)
