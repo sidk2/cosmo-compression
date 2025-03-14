@@ -6,10 +6,11 @@ from cosmo_compression.data import data
 from cosmo_compression.model import represent
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader, TensorDataset, random_split
+from torch.utils.data import DataLoader, TensorDataset
 import matplotlib.pyplot as plt
 
-from sklearn.linear_model import LinearRegression
+from scipy import stats as scistats
+
 
 from cosmo_compression.downstream import param_est_model as pe
 import optuna
@@ -21,27 +22,43 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "5"
 def pct_error_loss(y_pred, y_true):
     return torch.mean(torch.abs((y_true - y_pred) / y_true))
 
-wdm = True
+wdm = False
 latent = True
 
 print("Performing parameter estimation with WDM =", wdm, "and Latent =", latent)
 
-cdm_data = data.CAMELS(
-    idx_list=range(0, 14000),
-    parameters=['Omega_m', 'sigma_8', "A_SN1", "A_SN2", "A_AGN1", "Wdm"],
-    suite="IllustrisTNG" if wdm else "Astrid",
-    dataset="WDM" if wdm else "LH",
-    map_type="Mcdm"
-)
-val_data = data.CAMELS(
-    idx_list=range(14000, 15000),
-    parameters=['Omega_m', 'sigma_8', "A_SN1", "A_SN2", "A_AGN1", "Wdm"],
-    suite="IllustrisTNG" if wdm else "Astrid",
-    dataset="WDM" if wdm else "LH",
-    map_type="Mcdm"
-)
+if wdm:
+    cdm_data = data.CAMELS(
+        idx_list=range(0, 14000),
+        parameters=['Omega_m', 'sigma_8', "A_SN1", "A_SN2", "A_AGN1", "Wdm"],
+        suite="IllustrisTNG" if wdm else "Astrid",
+        dataset="WDM" if wdm else "LH",
+        map_type="Mcdm"
+    )
+    val_data = data.CAMELS(
+        idx_list=range(14000, 15000),
+        parameters=['Omega_m', 'sigma_8', "A_SN1", "A_SN2", "A_AGN1", "Wdm"],
+        suite="IllustrisTNG" if wdm else "Astrid",
+        dataset="WDM" if wdm else "LH",
+        map_type="Mcdm"
+    )
+else:
+    cdm_data = data.CAMELS(
+        idx_list=range(0, 14600),
+        parameters=['Omega_m', 'sigma_8', 'A_SN1', 'A_SN2', 'A_AGN1', 'A_AGN2'],
+        suite="IllustrisTNG" if wdm else "Astrid",
+        dataset="WDM" if wdm else "LH",
+        map_type="Mcdm"
+    )
+    val_data = data.CAMELS(
+        idx_list=range(14600, 15000),
+        parameters=['Omega_m', 'sigma_8', 'A_SN1', 'A_SN2', 'A_AGN1', 'A_AGN2'],
+        suite="IllustrisTNG" if wdm else "Astrid",
+        dataset="WDM" if wdm else "LH",
+        map_type="Mcdm"
+    )
 
-fm = represent.Represent.load_from_checkpoint("a_tale_of_2_latents_1ch_per_enc/step=step=33400-val_loss=0.375.ckpt")
+    fm = represent.Represent.load_from_checkpoint("reversion_1/step=step=59100-val_loss=0.339.ckpt")
 fm.encoder = fm.encoder.cuda()
 for p in fm.encoder.parameters():
     p.requires_grad = False
@@ -89,19 +106,19 @@ encoded_images = torch.cat(encoded_images, dim=0)
 test_dataset = TensorDataset(encoded_images, torch.tensor(val_data.x))
 
 # Create new data loaders from the latent dataset
-train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
-test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False)
+train_loader = DataLoader(train_dataset, batch_size=100, shuffle=True)
+test_loader = DataLoader(test_dataset, batch_size=100, shuffle=False)
 
 print("Loaded data")
 
 # Set up training: use ParamEstVec for latent vector inference
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 if latent:
-    model = pe.ParamEstVec(hidden_dim=5, num_hiddens=5, in_dim=2048, output_size=(1 if wdm else 2)).to(device)
+    model = pe.ParamEstVec(hidden_dim=5, num_hiddens=5, in_dim=2304, output_size=(1 if wdm else 2)).to(device)
 else:
     model = pe.ParamEstimatorImg(hidden=5, dr=0.1, channels=1, output_size=(1 if wdm else 2)).to(device)
 
-criterion = nn.L1Loss()
+criterion = nn.MSELoss()
 
 def objective(trial):
     # Hyperparameter search space
@@ -113,7 +130,7 @@ def objective(trial):
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if latent:
-        model = pe.ParamEstVec(hidden_dim=hidden_dim, num_hiddens=hidden, in_dim=2048, output_size=(1 if wdm else 2)).to(device)
+        model = pe.ParamEstVec(hidden_dim=hidden_dim, num_hiddens=hidden, in_dim=2304, output_size=(1 if wdm else 2)).to(device)
     else:
         model = pe.ParamEstimatorImg(hidden=hidden, dr=0.1, channels=1, output_size=(1 if wdm else 2)).to(device)
     
@@ -154,22 +171,22 @@ def objective(trial):
     return best_val_loss
 
 # Uncomment below to run Optuna optimization
-study = optuna.create_study(direction='minimize')
-study.optimize(objective, n_trials=50)
-best_params = study.best_params
-print("Best hyperparameters:", best_params)
+# study = optuna.create_study(direction='minimize')
+# study.optimize(objective, n_trials=50)
+# best_params = study.best_params
+# print("Best hyperparameters:", best_params)
 
 # Train final model using ParamEstVec with chosen hyperparameters
 if latent:
-    model = pe.ParamEstVec(hidden_dim=best_params['hidden_dim'], num_hiddens=best_params['hidden'], in_dim=2048, output_size=(1 if wdm else 2)).to(device)
+    model = pe.ParamEstVec(hidden_dim=1000, num_hiddens=2, in_dim=2304, output_size=(1 if wdm else 2)).to(device)
 else:
     model = pe.ParamEstimatorImg(hidden=5, dr=0.1, channels=1, output_size=(1 if wdm else 2)).to(device)
 
-final_optimizer = optim.Adam(model.parameters(), lr=best_params['lr'], weight_decay=best_params['weight_decay'])
-scheduler = optim.lr_scheduler.StepLR(final_optimizer, step_size=20, gamma=0.5)
+final_optimizer = optim.Adam(model.parameters(), lr=1e-6)
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(final_optimizer, T_max=1000, eta_min=1e-7)
 
 best_loss = float('inf')
-num_epochs = 200
+num_epochs = 50
 for epoch in range(num_epochs):
     model.train()
     running_loss = 0.0
@@ -246,8 +263,13 @@ for i, param_name in enumerate(plot_labels):
         x = true_params[:, i]
         y = pred_params[:, i]
         
+    print(x.shape, y.shape)
+        
     plt.subplot(1, 2, i+1)
     plt.scatter(x, y, alpha=0.2)
+    
+    print(scistats.pearsonr(true_params[:, i], pred_params[:, i]))
+
     
     # Compute and plot line of best fit
     if not wdm:
@@ -255,7 +277,7 @@ for i, param_name in enumerate(plot_labels):
         best_fit_line = slope * x + intercept
         plt.plot(x, best_fit_line, 'b-', label=f'Fit: y={slope:.2f}x')
     else:
-        slope, intercept = np.polyfit(x[:, 0], y[:, 0], 1)
+        slope, intercept = np.polyfit(x, y, 1)
         best_fit_line = slope * x + intercept
         plt.plot(x, best_fit_line, 'b-', label=f'Fit: y={slope:.2f}x')
     

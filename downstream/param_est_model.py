@@ -261,11 +261,12 @@ class ParamEstVec(nn.Module):
     def __init__(self, hidden_dim, num_hiddens, in_dim, output_size):
         super(ParamEstVec, self).__init__()
         self.in_transform = nn.Linear(in_dim, hidden_dim)
-        self.out_transform = nn.Linear(hidden_dim, output_size)
+        self.out_transform = nn.Linear(256, output_size)
         
         self.hiddens = nn.ModuleList(
             [nn.Linear(hidden_dim, hidden_dim) for _ in range(num_hiddens)]
         )
+        self.hiddens.append(nn.Linear(hidden_dim, 256))
         
         self.LeakyReLU = nn.LeakyReLU(0.2)
     

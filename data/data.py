@@ -84,6 +84,10 @@ class CAMELS(VisionDataset):
         self.suite = suite
         self.dataset = dataset
         self.map_type = map_type
+        self.min = 0
+        self.max = 0
+        self.mean = 0
+        self.std = 0
         self._load_images(
             suite=suite,
             dataset=dataset,
@@ -117,6 +121,10 @@ class CAMELS(VisionDataset):
             data -= 1.05 * NORM_DICT[map_type][self.resolution]["min"]
 
         self.y = np.log10(data)[:, None]
+        self.min = np.min(self.y)
+        self.max = np.max(self.y)
+        self.mean = np.mean(self.y)
+        self.std = np.std(self.y)
 
     def _load_parameters(
         self,
@@ -165,7 +173,5 @@ class CAMELS(VisionDataset):
         if self.resize is not None:
             y = self.resize(y)
         # Standarize
-        y = (y - NORM_DICT[self.map_type][self.resolution]["mean"]) / NORM_DICT[
-            self.map_type
-        ][self.resolution]["std"]
+        y = (y - self.mean) / self.std
         return y, x

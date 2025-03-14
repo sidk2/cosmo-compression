@@ -26,7 +26,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "5"
 
 
 # Load model
-fm = represent.Represent.load_from_checkpoint("dropout_128/step=step=21300-val_loss=0.250.ckpt")
+fm = represent.Represent.load_from_checkpoint("reversion_1/step=step=52000-val_loss=0.339.ckpt")
 fm.encoder = fm.encoder.cuda()
 for p in fm.encoder.parameters():
     p.requires_grad = False
@@ -41,13 +41,13 @@ def compute_latents(dataset, is_cdm=True):
     for i, (data, cosmo) in tqdm.tqdm(enumerate(dataset)):
         with torch.no_grad():
             data = torch.tensor(data).unsqueeze(0).cuda()
-            latent = fm.encoder(data)
+            spatial, latent = fm.encoder(data)
             latents.append(latent.cpu().numpy())
             params.append(np.append(cosmo, 0.0 if is_cdm else 1.0))
     return np.array(latents), np.array(params)
 
-cdm_data = data.CAMELS(idx_list=range(10000), parameters=['Omega_m', 'sigma_8', "A_SN1", "A_SN2", "A_AGN1","A_AGN2"], suite="IllustrisTNG", dataset="LH", map_type="Mcdm")
-wdm_data = data.CAMELS(idx_list=range(10000), parameters=['Omega_m', 'sigma_8', 'A_SN1', 'A_AGN1', 'A_AGN2', 'WDM'], suite="IllustrisTNG", dataset="WDM", map_type="Mcdm")
+cdm_data = data.CAMELS(idx_list=range(14600), parameters=['Omega_m', 'sigma_8', "A_SN1", "A_SN2", "A_AGN1","A_AGN2"], suite="IllustrisTNG", dataset="LH", map_type="Mcdm")
+wdm_data = data.CAMELS(idx_list=range(14600), parameters=['Omega_m', 'sigma_8', 'A_SN1', 'A_AGN1', 'A_AGN2', 'WDM'], suite="IllustrisTNG", dataset="WDM", map_type="Mcdm")
 
 # Load or compute CDM latents
 if os.path.exists(cdm_latents_path) and os.path.exists(cdm_params_path):
@@ -96,65 +96,17 @@ test_loader = DataLoader(test_dataset, batch_size=256, shuffle=False)
 
 # # Initialize model, loss, and optimizer
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model = ad.AnomalyDetectorImg(hidden=4, dr = 0.1, channels=1).to(device)
+model = ad.ADVec(hidden_dim=2048, num_hiddens=3, in_dim=2304, output_size=1).to(device)
 criterion = nn.BCEWithLogitsLoss()
-optimizer = optim.Adam(model.parameters(), lr=0.0005522306480291232, weight_decay=1.0062357803767319e-05)
+optimizer = optim.Adam(model.parameters(), lr=0.00001522306480291232, weight_decay=1.0062357803767319e-05)
 
-def objective(trial):
-    # Define hyperparameters to optimize
-    lr = trial.suggest_loguniform('lr', 1e-6, 1e-3)
-    weight_decay = trial.suggest_loguniform('weight_decay', 1e-8, 1e-4)
-    hidden = trial.suggest_int('hidden', 1, 10)
-    
-    # Initialize model, loss, and optimizer
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = ad.AnomalyDetectorImg(hidden=hidden, dr = 0.1, channels=1).to(device)
-    criterion = nn.BCEWithLogitsLoss()
-    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
-    
-    # Training loop (reduced epochs for faster optimization)
-    num_epochs = 50  # Set lower for Optuna trials
-    best_val_loss = float('inf')
-    
-    for epoch in range(num_epochs):
-        model.train()
-        for images, labels in train_loader:
-            images, labels = images.to(device).squeeze(1), labels.to(device)
-            optimizer.zero_grad()
-            outputs = model(images)
-            loss = criterion(outputs.squeeze(), labels.float())
-            loss.backward()
-            optimizer.step()
-        
-        model.eval()
-        val_loss = 0.0
-        with torch.no_grad():
-            for images, labels in test_loader:
-                images, labels = images.to(device).squeeze(1), labels.to(device)
-                outputs = model(images)
-                loss = criterion(outputs.squeeze(), labels.float())
-                val_loss += loss.item()
-        
-        val_loss /= len(test_loader)
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-    
-    return best_val_loss
-
-# Run Optuna optimization
-study = optuna.create_study(direction='minimize')
-study.optimize(objective, n_trials=20)
-
-# Get best hyperparameters
-best_params = study.best_params
-print("Best hyperparameters:", best_params)
 # Training loop
-num_epochs = 30
+num_epochs = 50
 best_val_loss = float('inf')
 best_model_state = None
 
-model = ad.AnomalyDetectorImg(hidden=best_params['hidden'], dr = 0.1, channels=1).to(device)
-optimizer = optim.Adam(model.parameters(), lr=best_params['lr'], weight_decay=best_params['weight_decay'])
+# model = ad.AnomalyDetectorImg(hidden=best_params['hidden'], dr = 0.1, channels=1).to(device)
+# optimizer = optim.Adam(model.parameters(), lr=best_params['lr'], weight_decay=best_params['weight_decay'])
 
 for epoch in range(num_epochs):
     model.train()
@@ -189,12 +141,12 @@ for epoch in range(num_epochs):
 # Evaluate model on test set
 model.load_state_dict(best_model_state)
 model.eval()
-correct, total = 0, 0
+correct = 0
 with torch.no_grad():
     for inputs, labels in test_loader:
         inputs, labels = inputs.to(device).squeeze(1), labels.to(device)
         outputs = model(inputs)
-        predicted = (outputs > 0.5).long()
-        total += labels[labels == 1].size(0)
-        correct += (predicted[labels == 1].squeeze() == labels[labels == 1]).nonzero().size(0)
-print(f"Test Accuracy of Anomaly Detection on Latent: {100 * correct / total:.2f}%")
+        predicted = (torch.sigmoid(outputs.squeeze()) > 0.5).long()
+        # print(predicted.nonzero(), labels.nonzero().shape, torch.sum(predicted == labels))
+        correct += torch.sum(predicted == labels)
+print(f"Test Accuracy of Anomaly Detection on Latent: {100 * correct / len(test_loader.dataset):.2f}%")

@@ -15,49 +15,44 @@ from cosmo_compression.data import data
 from cosmo_compression.model import represent
 from matplotlib.colors import Normalize
 
-seed_everything(137)
+# seed_everything(137)
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "4"
+os.environ["CUDA_VISIBLE_DEVICES"] = "5"
 
 MAP_TYPE = "Mcdm"
 MAP_RESOLUTION = 256
 
-mean = data.NORM_DICT[MAP_TYPE][MAP_RESOLUTION]["mean"]
-std = data.NORM_DICT[MAP_TYPE][MAP_RESOLUTION]["std"]
-
 device: str = "cuda" if torch.cuda.is_available() else "cpu"
 
-train_data = data.CAMELS(
-        idx_list=range(14_000),
-        map_type='Mcdm',
-        parameters=['Omega_m', 'sigma_8',],
-        )
-
 val_data = data.CAMELS(
-    idx_list=range(14_000, 15_000),
-    map_type='Mcdm',
-    parameters=['Omega_m', 'sigma_8',],
-)
+        parameters=['Omega_m', 'sigma_8', 'A_SN1', 'A_SN2', 'A_AGN1', 'WDM'],
+        suite="IllustrisTNG",
+        dataset="WDM",
+        map_type="Mcdm"
+    )
 
-y, cosmo = val_data[0]
+y, cosmo = val_data[np.random.randint(0, len(val_data))]
 y = torch.tensor(y).cuda().unsqueeze(0)
 
 batch = y, cosmo
 
+print(cosmo[-1])
 fm: lightning.LightningModule = represent.Represent.load_from_checkpoint(
-    "camels_gdn_time_for_encoding/step=step=22000-val_loss=0.361.ckpt"
+    "reversion_1/step=step=59100-val_loss=0.339.ckpt"
 ).to('cuda')
 
 fm.eval()
 
-n_samples = [2, 5, 10, 20, 50]
+n_samples = [30]
 x0 = torch.randn_like(y)
 
-fig, ax = plt.subplots(3, 6, figsize=(24, 12))  # Modify the layout for 3 rows
+fig, ax = plt.subplots(3, len(n_samples) + 1, figsize=(6*len(n_samples)+6, 12))  # Modify the layout for 3 rows
 ax[0, 0].imshow(y[0, :, :, :].detach().cpu().permute(1, 2, 0).numpy())
 ax[0, 0].set_title("Original")
 
-y = y * std + mean
+print(val_data.mean, val_data.std)
+
+y = y * val_data.std + val_data.mean
 
 delta_fields_orig_1 = y[0, 0, :, :] / np.mean(y[0, 0, :, :].detach().cpu().numpy()) - 1
 Pk2D = PKL.Pk_plane(delta_fields_orig_1.detach().cpu().numpy(), 25.0, "None", 1, verbose=False)
@@ -75,17 +70,18 @@ vmax = float('-inf')
 # First pass through the data to determine the color scale range for the difference
 for i, n_sampling_steps in enumerate(n_samples):
     t = torch.linspace(0, 1, n_sampling_steps).cuda()
-
-    hs = [fm.encoder((y-mean)/std, ts) for ts in t]  # List of tensors
-    h = torch.cat(hs, dim=1)
+    # List of tensors
+    h = fm.encoder((y-val_data.mean)/val_data.std)
+    spatial, repr = h
+    repr = repr.unsqueeze(0)
+    h = spatial, repr
 
     pred = fm.decoder.predict(
         x0,
         h=h,
-        t=t,
         n_sampling_steps=n_sampling_steps,
     )
-    pred = pred * std + mean
+    pred = pred * val_data.std + val_data.mean
     diff = torch.abs(y - pred).cpu().numpy()[0, 0, :, :]  # Absolute pixel-wise difference
 
     # Find global min and max for scaling
@@ -95,16 +91,18 @@ for i, n_sampling_steps in enumerate(n_samples):
 for i, n_sampling_steps in enumerate(n_samples):
     t = torch.linspace(0, 1, n_sampling_steps).cuda()
 
-    hs = [fm.encoder((y-mean)/std, ts) for ts in t]  # List of tensors
-    h = torch.cat(hs, dim=1)
+    h = fm.encoder((y-val_data.mean)/val_data.std)
+    spatial, repr = h
+    repr = repr.unsqueeze(0)
+    h = spatial, repr
+
 
     pred = fm.decoder.predict(
         x0,
         h=h,
-        t=t,
         n_sampling_steps=n_sampling_steps,
     )
-    pred = pred * std + mean
+    pred = pred * val_data.std + val_data.mean
     delta_fields_orig_1 = pred[0, 0, :, :] / np.mean(pred[0, 0, :, :].detach().cpu().numpy()) - 1
     Pk2D = PKL.Pk_plane(delta_fields_orig_1.detach().cpu().numpy(), 25.0, "None", 1, verbose=False)
     k_pred = Pk2D.k

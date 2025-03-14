@@ -42,14 +42,14 @@ loader = torchdata.DataLoader(
     pin_memory=True,
 )
 
-fm = represent.Represent.load_from_checkpoint("dropout_128/step=step=21300-val_loss=0.250.ckpt")
+fm = represent.Represent.load_from_checkpoint("reversion_1/step=step=27600-val_loss=0.359.ckpt")
 fm.eval()
 
 gts = []
 Pk_orig = np.zeros(181)
 Pk_fin = np.zeros(181)
 
-img, cosmo = dataset[60]
+img, cosmo = dataset[0]
 img = torch.tensor(img).unsqueeze(0).cuda()
 
 n_sampling_steps = 50
@@ -64,7 +64,7 @@ Pk2D = PKL.Pk_plane(delta_fields_orig_1, 25.0, "None", 1, verbose=False)
 k_orig = Pk2D.k
 Pk_orig = Pk2D.Pk
 
-img, cosmo = dataset[0]
+img, cosmo = dataset[60]
 img = torch.tensor(img).unsqueeze(0).cuda()
 
 h = fm.encoder(img) 
@@ -78,29 +78,28 @@ k_fin = Pk2D.k
 Pk_fin = Pk2D.Pk
 
 # Define latent vectors for gradient-based interpolation
-h_grad = [gts[0][2][0]]
 h_linear = []
 
-starting_img = gts[0][2]
-target_img = gts[-1][2]
+starting_img = gts[0][2][0]
+target_img = gts[-1][2][0]
 
 # Initialize a list for the interpolated latents
 h_linear = []
 # Define latent interpolation ranges and labels
 modulation_ranges = {
-    f"Stage 3" : range(96, 128),
-    f"Stage 2" : range(64, 96),
-    f"Stage 1" : range(32, 64),
-    f"Stage 0" : range(0, 32),
+    f"Stage 0" : range(0, 1),
+    f"Stage 1" : range(1, 2),
+    f"Stage 2" : range(2, 3),
+    f"Stage 3" : range(3, 4),
 }
 
-num_samples_per_stage = 5
+num_samples_per_stage = 10
 all_interpolations = []
 labels = []
 
 current_image = starting_img.clone()
 
-for label, specified_channels in modulation_ranges.items():
+for stage, (label, specified_channels) in enumerate(modulation_ranges.items()):
     # Perform interpolation for the specified channels
     for i in range(num_samples_per_stage):
         t = i / (num_samples_per_stage - 1)  # Interpolation factor
@@ -109,28 +108,29 @@ for label, specified_channels in modulation_ranges.items():
             (1 - t) * starting_img[:, specified_channels]
             + t * target_img[:, specified_channels]
         )
+        
         # Combine the latent vector (unchanged) with the interpolated image
-        all_interpolations.append( interpolated_image)
+        all_interpolations.append((interpolated_image,  fm.encoder.fc(fm.encoder.pool(interpolated_image).squeeze()).unsqueeze(0)))
         labels.append(label)
 
     # Update current latent and image to the end of this stage
     current_image = interpolated_image.clone()
 
-# Reverse interpolation
-for label, specified_channels in modulation_ranges.items():
-    for i in range(num_samples_per_stage):
-        t = i / (num_samples_per_stage - 1)  # Interpolation factor
-        interpolated_image = current_image.clone()  # Clone the current image
-        interpolated_image[:, specified_channels] = (
-            (1 - t) * target_img[:, specified_channels]
-            + t * starting_img[:, specified_channels]
-        )
-        # Combine the latent vector (unchanged) with the interpolated image
-        all_interpolations.append(interpolated_image)
-        labels.append(f"Reverse: {label}")
+# # Reverse interpolation
+# for label, specified_channels in modulation_ranges.items():
+#     for i in range(num_samples_per_stage):
+#         t = i / (num_samples_per_stage - 1)  # Interpolation factor
+#         interpolated_image = current_image.clone()  # Clone the current image
+#         interpolated_image[:, specified_channels] = (
+#             (1 - t) * target_img[:, specified_channels]
+#             + t * starting_img[:, specified_channels]
+#         )
+#         # Combine the latent vector (unchanged) with the interpolated image
+#         all_interpolations.append(interpolated_image)
+#         labels.append(f"Reverse: {label}")
 
-    # Update current latent and image to the end of this stage
-    current_image = interpolated_image.clone()
+#     # Update current latent and image to the end of this stage
+#     current_image = interpolated_image.clone()
 
 # Generate multiple x0s and use the same set for all steps
 num_samples = 1
