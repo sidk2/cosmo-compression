@@ -58,7 +58,7 @@ else:
         map_type="Mcdm"
     )
 
-    fm = represent.Represent.load_from_checkpoint("reversion_1/step=step=59100-val_loss=0.339.ckpt")
+fm = represent.Represent.load_from_checkpoint("reversion_2/step=step=25100-val_loss=0.276.ckpt")
 fm.encoder = fm.encoder.cuda()
 for p in fm.encoder.parameters():
     p.requires_grad = False
@@ -106,8 +106,8 @@ encoded_images = torch.cat(encoded_images, dim=0)
 test_dataset = TensorDataset(encoded_images, torch.tensor(val_data.x))
 
 # Create new data loaders from the latent dataset
-train_loader = DataLoader(train_dataset, batch_size=100, shuffle=True)
-test_loader = DataLoader(test_dataset, batch_size=100, shuffle=False)
+train_loader = DataLoader(train_dataset, batch_size=512, shuffle=True)
+test_loader = DataLoader(test_dataset, batch_size=512, shuffle=False)
 
 print("Loaded data")
 
@@ -182,11 +182,11 @@ if latent:
 else:
     model = pe.ParamEstimatorImg(hidden=5, dr=0.1, channels=1, output_size=(1 if wdm else 2)).to(device)
 
-final_optimizer = optim.Adam(model.parameters(), lr=1e-6)
-scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(final_optimizer, T_max=1000, eta_min=1e-7)
+final_optimizer = optim.Adam(model.parameters(), lr=1e-4)
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(final_optimizer, T_max=500, eta_min=1e-7)
 
 best_loss = float('inf')
-num_epochs = 50
+num_epochs = 500
 for epoch in range(num_epochs):
     model.train()
     running_loss = 0.0

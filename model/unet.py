@@ -578,15 +578,15 @@ class UNet(nn.Module):
 
         # Downsampling stages
         x1 = self.inc(x, t, repr[:, 0:256])
-        x1 = torch.cat([self.latent_upsampler_0(spatial[:, 0:1, :, :]), x1], dim=1)
+        x1 = torch.cat([self.latent_upsampler_0(spatial[:, 0:self.num_latent_channels // 4, :, :]), x1], dim=1)
         x2 = self.down1(x1, t, repr[:, 256:512])
-        x2 = torch.cat([self.latent_upsampler_1(spatial[:, 1:2, :, :]), x2], dim=1)
+        x2 = torch.cat([self.latent_upsampler_1(spatial[:, (self.num_latent_channels // 4):2*self.num_latent_channels // 4, :, :]), x2], dim=1)
         x3 = self.down2(x2, t, repr[:, 512:768])
         x3 = self.sa2(x3)
-        x3 = torch.cat([self.latent_upsampler_2(spatial[:, 2:3, :, :]), x3], dim=1)
+        x3 = torch.cat([self.latent_upsampler_2(spatial[:, (2*self.num_latent_channels // 4):3*self.num_latent_channels // 4, :, :]), x3], dim=1)
         x4 = self.down3(x3, t, repr[:, 768:1024])
         x4 = self.sa3(x4)
-        x4 = torch.cat([self.latent_upsampler_3(spatial[:, 3:4, :, :]), x4], dim=1)
+        x4 = torch.cat([self.latent_upsampler_3(spatial[:, (3*self.num_latent_channels // 4):4*self.num_latent_channels // 4, :, :]), x4], dim=1)
         x5 = self.down4(x4, t, repr[:, 1024:1280])
 
         # Upsampling stages

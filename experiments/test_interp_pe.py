@@ -29,8 +29,8 @@ std = data.NORM_DICT[MAP_TYPE][MAP_RESOLUTION]["std"]
 
 device: str = "cuda" if torch.cuda.is_available() else "cpu"
 
-param_estimator = pe.ParamEstimatorImg(hidden=5, dr = 0.1, channels=1, output_size=2).to(device)
-param_estimator.load_state_dict(torch.load(f'pe_params_wdm_False_latent_False.pt'))
+param_estimator = pe.ParamEstVec(hidden_dim=1000, num_hiddens=2, in_dim=2304, output_size=2).to(device)
+param_estimator.load_state_dict(torch.load(f'pe_params_wdm_False_latent_True.pt'))
 param_estimator.eval()
 
 dataset: torchdata.Dataset = data.CAMELS(
@@ -47,7 +47,7 @@ loader = torchdata.DataLoader(
     pin_memory=True,
 )
 
-fm = represent.Represent.load_from_checkpoint("dropout_128/step=step=21300-val_loss=0.250.ckpt")
+fm = represent.Represent.load_from_checkpoint("reversion_2/step=step=14900-val_loss=0.292.ckpt")
 fm.eval()
 
 gts = []
@@ -89,14 +89,18 @@ Pk_fin = Pk2D.Pk
 h_grad = [gts[0][2][0]]
 h_linear = []
 
-starting_img = gts[0][2]
-target_img = gts[-1][2]
+starting_img = gts[0][2][0]
+target_img = gts[-1][2][0]
 
 # Initialize a list for the interpolated latents
 h_linear = []
 # Define latent interpolation ranges and labels
 modulation_ranges = {
-    f"Interpolation" : range(0, 128),
+    f"Interpolation 1" : range(0, 16),
+    f"Interpolation 2" : range(16, 32),
+    f"Interpolation 3" : range(32, 48),
+    f"Interpolation 4" : range(48, 64),
+
 }
 
 num_samples_per_stage = 10
@@ -105,7 +109,7 @@ labels = []
 
 current_image = starting_img.clone()
 
-for label, specified_channels in modulation_ranges.items():
+for stage, (label, specified_channels) in enumerate(modulation_ranges.items()):
     # Perform interpolation for the specified channels
     for i in range(num_samples_per_stage):
         t = i / (num_samples_per_stage - 1)  # Interpolation factor
@@ -114,8 +118,9 @@ for label, specified_channels in modulation_ranges.items():
             (1 - t) * starting_img[:, specified_channels]
             + t * target_img[:, specified_channels]
         )
+        
         # Combine the latent vector (unchanged) with the interpolated image
-        all_interpolations.append( interpolated_image)
+        all_interpolations.append((interpolated_image,  fm.encoder.fc(fm.encoder.pool(interpolated_image).squeeze()).unsqueeze(0)))
         labels.append(label)
 
     # Update current latent and image to the end of this stage
@@ -145,9 +150,8 @@ for i, latent_interpolation in tqdm.tqdm(enumerate(all_interpolations)):
         Pk_samples.append(Pk2D.Pk)
         
         # Estimate parameters
-        param_est_input = (torch.tensor(sample_pred).unsqueeze(0).unsqueeze(0).to(device) - mean) / std
         with torch.no_grad():
-            param_est_output = param_estimator(param_est_input)
+            param_est_output = param_estimator(latent_interpolation[1])
         param_est_samples.append(param_est_output.detach().cpu().numpy().squeeze())
     
     # Average power spectra and parameter estimates across all samples

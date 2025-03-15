@@ -260,18 +260,18 @@ class AnomalyDetectorLat(nn.Module):
 class ADVec(nn.Module):
     def __init__(self, hidden_dim, num_hiddens, in_dim, output_size):
         super(ADVec, self).__init__()
-        self.bn = nn.BatchNorm1d(in_dim)
         self.in_transform = nn.Linear(in_dim, hidden_dim)
-        self.out_transform = nn.Linear(hidden_dim, output_size)
+        self.out_transform = nn.Linear(256, output_size)
         
         self.hiddens = nn.ModuleList(
             [nn.Linear(hidden_dim, hidden_dim) for _ in range(num_hiddens)]
         )
+        self.hiddens.append(nn.Linear(hidden_dim, 256))
         
         self.LeakyReLU = nn.LeakyReLU(0.2)
     
     def forward(self, x):
-        x = self.LeakyReLU(self.in_transform(self.bn(x)))
+        x = self.LeakyReLU(self.in_transform(x))
         for hidden in self.hiddens:
             x = self.LeakyReLU(hidden(x))
         x = self.out_transform(x)

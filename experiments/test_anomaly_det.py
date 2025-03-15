@@ -26,7 +26,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "5"
 
 
 # Load model
-fm = represent.Represent.load_from_checkpoint("reversion_1/step=step=52000-val_loss=0.339.ckpt")
+fm = represent.Represent.load_from_checkpoint("reversion_2/step=step=22100-val_loss=0.284.ckpt")
 fm.encoder = fm.encoder.cuda()
 for p in fm.encoder.parameters():
     p.requires_grad = False
@@ -90,18 +90,19 @@ val_size = int(0.1 * len(dataset))
 test_size = len(dataset) - train_size - val_size
 train_dataset, val_dataset, test_dataset = random_split(dataset, [train_size, val_size, test_size])
 
-train_loader = DataLoader(train_dataset, batch_size=256, shuffle=True)
-val_loader = DataLoader(val_dataset, batch_size=256, shuffle=False)
-test_loader = DataLoader(test_dataset, batch_size=256, shuffle=False)
+train_loader = DataLoader(train_dataset, batch_size=512, shuffle=True)
+val_loader = DataLoader(val_dataset, batch_size=512, shuffle=False)
+test_loader = DataLoader(test_dataset, batch_size=512, shuffle=False)
 
 # # Initialize model, loss, and optimizer
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model = ad.ADVec(hidden_dim=2048, num_hiddens=3, in_dim=2304, output_size=1).to(device)
+model = ad.ADVec(hidden_dim=1000, num_hiddens=5, in_dim=2304, output_size=1).to(device)
 criterion = nn.BCEWithLogitsLoss()
-optimizer = optim.Adam(model.parameters(), lr=0.00001522306480291232, weight_decay=1.0062357803767319e-05)
+optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=1.0062357803767319e-05)
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=300, eta_min=1e-7)
 
 # Training loop
-num_epochs = 50
+num_epochs = 300
 best_val_loss = float('inf')
 best_model_state = None
 
@@ -134,6 +135,7 @@ for epoch in range(num_epochs):
         best_val_loss = val_loss
         best_model_state = model.state_dict()
     
+    scheduler.step()
     print(f"Epoch {epoch+1}, Loss: {running_loss / len(train_loader)}, Val Loss: {val_loss}")
 
 

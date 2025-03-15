@@ -17,7 +17,7 @@ import torch.nn as nn
 import wandb
 import os
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "3, 4"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1, 2,3, 4"
 
 from cosmo_compression.model import represent
 from cosmo_compression.data import data
@@ -183,7 +183,7 @@ def train(args):
     fm = represent.Represent(
         log_wandb=args.use_wandb,
         unconditional=args.unconditional,
-        latent_img_channels = 1,
+        latent_img_channels = 16,
     )
         
     fm.apply(init_weights)
@@ -196,7 +196,7 @@ def train(args):
         log_every_n_steps=50,
         accumulate_grad_batches=args.accumulate_gradients if args.accumulate_gradients is not None else 1,
         callbacks=[checkpoint_callback_phase_0, lr_monitor],
-        devices=2,
+        devices=4,
         check_val_every_n_epoch=None,
         val_check_interval=args.eval_every,
         max_epochs=300,
