@@ -330,7 +330,7 @@ class DownStep(nn.Module):
         )
         self.gdn_layer = gdn.GDN(ch=out_channels, device="cuda")
 
-    def forward(self, x: torch.Tensor, t, z) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, t, z=None) -> torch.Tensor:
         """Overloads forward method of nn.Module"""
         return self.gdn_layer(self.conv2(self.conv1(self.pooling(x), t, z), t, z))
 
@@ -362,7 +362,7 @@ class UpStep(nn.Module):
 
         self.gdn_layer = gdn.GDN(ch=out_channels, device="cuda", inverse=True)
 
-    def forward(self, x: torch.Tensor, res_x: torch.Tensor, t, z) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, res_x: torch.Tensor, t, z=None) -> torch.Tensor:
         """Overloads forward method of nn.Module"""
         x = self.conv1(x, t, z)
         x = torch.cat([res_x, x], dim=1)
@@ -483,67 +483,67 @@ class UNet(nn.Module):
             padding=0,
             bias=True,
         )
-        # self.latent_upsampler_0 = nn.Sequential(
-        #     UpStepWoutRes(
-        #         in_channels=int(self.num_latent_channels // 4),
-        #         out_channels=int(self.num_latent_channels // 4),
-        #         time_dim=time_dim,
-        #     ),
-        #     UpStepWoutRes(
-        #         in_channels=int(self.num_latent_channels // 4),
-        #         out_channels=int(self.num_latent_channels // 4),
-        #         time_dim=time_dim,
-        #     ),
-        #     UpStepWoutRes(
-        #         in_channels=int(self.num_latent_channels // 4),
-        #         out_channels=int(self.num_latent_channels // 4),
-        #         time_dim=time_dim,
-        #     ),
-        #     UpStepWoutRes(
-        #         in_channels=int(self.num_latent_channels // 4),
-        #         out_channels=int(self.num_latent_channels // 4),
-        #         time_dim=time_dim,
-        #     ),
-        # )
+        self.latent_upsampler_0 = nn.Sequential(
+            UpStepWoutRes(
+                in_channels=int(self.num_latent_channels // 4),
+                out_channels=int(self.num_latent_channels // 4),
+                time_dim=time_dim,
+            ),
+            UpStepWoutRes(
+                in_channels=int(self.num_latent_channels // 4),
+                out_channels=int(self.num_latent_channels // 4),
+                time_dim=time_dim,
+            ),
+            UpStepWoutRes(
+                in_channels=int(self.num_latent_channels // 4),
+                out_channels=int(self.num_latent_channels // 4),
+                time_dim=time_dim,
+            ),
+            UpStepWoutRes(
+                in_channels=int(self.num_latent_channels // 4),
+                out_channels=int(self.num_latent_channels // 4),
+                time_dim=time_dim,
+            ),
+        )
 
-        # self.latent_upsampler_1 = nn.Sequential(
-        #     UpStepWoutRes(
-        #         in_channels=int(self.num_latent_channels // 4),
-        #         out_channels=int(self.num_latent_channels // 4),
-        #         time_dim=time_dim,
-        #     ),
-        #     UpStepWoutRes(
-        #         in_channels=int(self.num_latent_channels // 4),
-        #         out_channels=int(self.num_latent_channels // 4),
-        #         time_dim=time_dim,
-        #     ),
-        #     UpStepWoutRes(
-        #         in_channels=int(self.num_latent_channels // 4),
-        #         out_channels=int(self.num_latent_channels // 4),
-        #         time_dim=time_dim,
-        #     ),
-        # )
+        self.latent_upsampler_1 = nn.Sequential(
+            UpStepWoutRes(
+                in_channels=int(self.num_latent_channels // 4),
+                out_channels=int(self.num_latent_channels // 4),
+                time_dim=time_dim,
+            ),
+            UpStepWoutRes(
+                in_channels=int(self.num_latent_channels // 4),
+                out_channels=int(self.num_latent_channels // 4),
+                time_dim=time_dim,
+            ),
+            UpStepWoutRes(
+                in_channels=int(self.num_latent_channels // 4),
+                out_channels=int(self.num_latent_channels // 4),
+                time_dim=time_dim,
+            ),
+        )
 
-        # self.latent_upsampler_2 = nn.Sequential(
-        #     UpStepWoutRes(
-        #         in_channels=int(self.num_latent_channels // 4),
-        #         out_channels=int(self.num_latent_channels // 4),
-        #         time_dim=time_dim,
-        #     ),
-        #     UpStepWoutRes(
-        #         in_channels=int(self.num_latent_channels // 4),
-        #         out_channels=int(self.num_latent_channels // 4),
-        #         time_dim=time_dim,
-        #     ),
-        # )
+        self.latent_upsampler_2 = nn.Sequential(
+            UpStepWoutRes(
+                in_channels=int(self.num_latent_channels // 4),
+                out_channels=int(self.num_latent_channels // 4),
+                time_dim=time_dim,
+            ),
+            UpStepWoutRes(
+                in_channels=int(self.num_latent_channels // 4),
+                out_channels=int(self.num_latent_channels // 4),
+                time_dim=time_dim,
+            ),
+        )
 
-        # self.latent_upsampler_3 = nn.Sequential(
-        #     UpStepWoutRes(
-        #         in_channels=int(self.num_latent_channels // 4),
-        #         out_channels=int(self.num_latent_channels // 4),
-        #         time_dim=time_dim,
-        #     ),
-        # )
+        self.latent_upsampler_3 = nn.Sequential(
+            UpStepWoutRes(
+                in_channels=int(self.num_latent_channels // 4),
+                out_channels=int(self.num_latent_channels // 4),
+                time_dim=time_dim,
+            ),
+        )
 
         self.latent_vec_dim = latent_vec_dim
 
@@ -574,30 +574,29 @@ class UNet(nn.Module):
 
         t = self.pos_encoding(t, self.time_dim)
 
-        repr = z
+        spatial = z
 
         # Downsampling stages
-        x1 = self.inc(x, t, repr[:, 0:256])
-        # x1 = torch.cat([self.latent_upsampler_0(spatial[:, 0:self.num_latent_channels // 4, :, :]), x1], dim=1)
-        x2 = self.down1(x1, t, repr[:, 256:512])
-        # x2 = torch.cat([self.latent_upsampler_1(spatial[:, (self.num_latent_channels // 4):2*self.num_latent_channels // 4, :, :]), x2], dim=1)
-        x3 = self.down2(x2, t, repr[:, 512:768])
+        x1 = self.inc(x, t)
+        x1 = torch.cat([self.latent_upsampler_0(spatial[:, 0:self.num_latent_channels // 4, :, :]), x1], dim=1)
+        x2 = self.down1(x1, t)
+        x2 = torch.cat([self.latent_upsampler_1(spatial[:, (self.num_latent_channels // 4):2*self.num_latent_channels // 4, :, :]), x2], dim=1)
+        x3 = self.down2(x2, t)
         x3 = self.sa2(x3)
-        # x3 = torch.cat([self.latent_upsampler_2(spatial[:, (2*self.num_latent_channels // 4):3*self.num_latent_channels // 4, :, :]), x3], dim=1)
-        x4 = self.down3(x3, t, repr[:, 768:1024])
+        x3 = torch.cat([self.latent_upsampler_2(spatial[:, (2*self.num_latent_channels // 4):3*self.num_latent_channels // 4, :, :]), x3], dim=1)
+        x4 = self.down3(x3, t)
         x4 = self.sa3(x4)
-        # x4 = torch.cat([self.latent_upsampler_3(spatial[:, (3*self.num_latent_channels // 4):4*self.num_latent_channels // 4, :, :]), x4], dim=1)
-        x5 = self.down4(x4, t, repr[:, 1024:1280])
+        x4 = torch.cat([self.latent_upsampler_3(spatial[:, (3*self.num_latent_channels // 4):4*self.num_latent_channels // 4, :, :]), x4], dim=1)
+        x5 = self.down4(x4, t)
 
         # Upsampling stages
-        x = self.up0(x5, x4, t, repr[:, 1280:1536])
+        x = self.up0(x5, x4, t)
         # x = self.sa0_inv(x)
-        x = self.up1(x, x3, t, repr[:, 1536:1792])
+        x = self.up1(x, x3, t)
         x = self.sa1_inv(x)
-        x = self.up2(x, x2, t, repr[:, 1792:2048])
+        x = self.up2(x, x2, t)
         # x = self.sa2_inv(x)
-        x = self.up3(x, x1, t, repr[:, 2048:2304])
+        x = self.up3(x, x1, t)
         # x = self.sa3_inv(x)
-        # output = self.outc(x, t, repr[:, self.latent_vec_dim // 2 : self.latent_vec_dim])
 
         return self.outc(x)
