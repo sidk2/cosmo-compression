@@ -132,4 +132,4 @@ class ResNetEncoder(nn.Module):
             spatial_list.append(spatial)
         
         spatial_latent = torch.cat(spatial_list, dim=1)
-        return spatial_latent, self.fc(self.pool(spatial_latent).squeeze())
+        return self.fc(self.pool(spatial_latent).squeeze())

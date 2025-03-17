@@ -58,7 +58,7 @@ else:
         map_type="Mcdm"
     )
 
-fm = represent.Represent.load_from_checkpoint("reversion_2/step=step=25100-val_loss=0.276.ckpt")
+fm = represent.Represent.load_from_checkpoint("reversion_3/step=step=57000-val_loss=0.421.ckpt")
 fm.encoder = fm.encoder.cuda()
 for p in fm.encoder.parameters():
     p.requires_grad = False
@@ -87,7 +87,7 @@ with torch.no_grad():
         images = images.cuda()
         if latent:
             # Assume encoder returns (spatial_latent, latent_vector)
-            _, latent_vector = fm.encoder(images)
+            latent_vector = fm.encoder(images)
             images = latent_vector
         encoded_images.append(images.cpu())
 
@@ -99,7 +99,7 @@ with torch.no_grad():
     for images, _ in tqdm.tqdm(test_loader):
         images = images.cuda()
         if latent:
-            _, latent_vector = fm.encoder(images)
+            latent_vector = fm.encoder(images)
             images = latent_vector
         encoded_images.append(images.cpu())
 encoded_images = torch.cat(encoded_images, dim=0)

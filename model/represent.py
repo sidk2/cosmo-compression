@@ -97,7 +97,7 @@ class Represent(LightningModule):
         return unet.UNet(
             n_channels=1,
             time_dim=256,
-            latent_img_channels = 4*self.latent_img_channels,
+            latent_img_channels = 0,
         )
 
     def initialize_encoder(self, in_channels: int) -> nn.Module:
@@ -174,19 +174,19 @@ class Represent(LightningModule):
             log_matplotlib_figure("field_reconstruction")
             plt.close()
             
-            h, _ = h
-            fig, ax = plt.subplots(2, 2, figsize=(8, 8))
-            ax[0, 0].imshow(h[0, 0, : , :].detach().unsqueeze(-1).cpu().numpy())
-            ax[0, 1].imshow(h[0, 1, : , :].detach().unsqueeze(-1).cpu().numpy())
-            ax[1, 0].imshow(h[0, 2, : , :].detach().unsqueeze(-1).cpu().numpy())
-            ax[1, 1].imshow(h[0, 3, : , :].detach().unsqueeze(-1).cpu().numpy())
-            ax[0, 0].set_title("Encoder 1")
-            ax[0, 1].set_title("Encoder 2")
-            ax[1, 0].set_title("Encoder 3")
-            ax[1, 1].set_title("Encoder 4")
-            plt.savefig("cosmo_compression/results/latents.png")
-            log_matplotlib_figure("latents")
-            plt.close()
+            # h, _ = h
+            # fig, ax = plt.subplots(2, 2, figsize=(8, 8))
+            # ax[0, 0].imshow(h[0, 0, : , :].detach().unsqueeze(-1).cpu().numpy())
+            # ax[0, 1].imshow(h[0, 1, : , :].detach().unsqueeze(-1).cpu().numpy())
+            # ax[1, 0].imshow(h[0, 2, : , :].detach().unsqueeze(-1).cpu().numpy())
+            # ax[1, 1].imshow(h[0, 3, : , :].detach().unsqueeze(-1).cpu().numpy())
+            # ax[0, 0].set_title("Encoder 1")
+            # ax[0, 1].set_title("Encoder 2")
+            # ax[1, 0].set_title("Encoder 3")
+            # ax[1, 1].set_title("Encoder 4")
+            # plt.savefig("cosmo_compression/results/latents.png")
+            # log_matplotlib_figure("latents")
+            # plt.close()
 
     def configure_optimizers(self) -> Dict[str, Any]:
         optimizer = torch.optim.AdamW(self.parameters(), lr=5e-5)
