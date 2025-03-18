@@ -97,7 +97,7 @@ class Represent(LightningModule):
         return unet.UNet(
             n_channels=1,
             time_dim=256,
-            latent_img_channels = 0,
+            latent_img_channels = 4*self.latent_img_channels,
         )
 
     def initialize_encoder(self, in_channels: int) -> nn.Module:
