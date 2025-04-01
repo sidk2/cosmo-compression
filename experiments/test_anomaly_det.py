@@ -26,7 +26,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "5"
 
 
 # Load model
-fm = represent.Represent.load_from_checkpoint("reversion_2/step=step=22100-val_loss=0.284.ckpt")
+fm = represent.Represent.load_from_checkpoint("reversion_2_126lat/step=step=19900-val_loss=0.269.ckpt")
 fm.encoder = fm.encoder.cuda()
 for p in fm.encoder.parameters():
     p.requires_grad = False
@@ -96,7 +96,7 @@ test_loader = DataLoader(test_dataset, batch_size=512, shuffle=False)
 
 # # Initialize model, loss, and optimizer
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model = ad.ADVec(hidden_dim=1000, num_hiddens=5, in_dim=2304, output_size=1).to(device)
+model = ad.ADVec(hidden_dim=1000, num_hiddens=5, in_dim=126, output_size=1).to(device)
 criterion = nn.BCEWithLogitsLoss()
 optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=1.0062357803767319e-05)
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=300, eta_min=1e-7)

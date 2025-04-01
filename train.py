@@ -17,7 +17,7 @@ import torch.nn as nn
 import wandb
 import os
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "1, 2,3, 4"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0, 1, 2,3, 4, 5"
 
 from cosmo_compression.model import represent
 from cosmo_compression.data import data
@@ -94,7 +94,7 @@ parser.add_argument(
 )
 parser.add_argument(
     "--num_workers",
-    default=2,
+    default=0,
     type=int,
     help="workers of Dataloader",
     required=False,
@@ -162,7 +162,11 @@ def train(args):
         num_workers=args.num_workers,
         pin_memory=True,
     )
-        
+    
+    for i in range(len(train_data)):
+        train_data[i]
+    for i in range(len(val_data)):
+        val_data[i]
     print(f'Using {len(train_data)} training samples and {len(val_data)} validation samples.')
 
     checkpoint_callback_phase_0 = ModelCheckpoint(
@@ -183,7 +187,7 @@ def train(args):
     fm = represent.Represent(
         log_wandb=args.use_wandb,
         unconditional=args.unconditional,
-        latent_img_channels = 16,
+        latent_img_channels = 1,
     )
         
     fm.apply(init_weights)
@@ -196,7 +200,7 @@ def train(args):
         log_every_n_steps=50,
         accumulate_grad_batches=args.accumulate_gradients if args.accumulate_gradients is not None else 1,
         callbacks=[checkpoint_callback_phase_0, lr_monitor],
-        devices=4,
+        devices=6,
         check_val_every_n_epoch=None,
         val_check_interval=args.eval_every,
         max_epochs=300,

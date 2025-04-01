@@ -31,14 +31,14 @@ if wdm:
     cdm_data = data.CAMELS(
         idx_list=range(0, 14000),
         parameters=['Omega_m', 'sigma_8', "A_SN1", "A_SN2", "A_AGN1", "Wdm"],
-        suite="IllustrisTNG" if wdm else "Astrid",
+        suite="IllustrisTNG",
         dataset="WDM" if wdm else "LH",
         map_type="Mcdm"
     )
     val_data = data.CAMELS(
         idx_list=range(14000, 15000),
         parameters=['Omega_m', 'sigma_8', "A_SN1", "A_SN2", "A_AGN1", "Wdm"],
-        suite="IllustrisTNG" if wdm else "Astrid",
+        suite="IllustrisTNG",
         dataset="WDM" if wdm else "LH",
         map_type="Mcdm"
     )
@@ -46,19 +46,19 @@ else:
     cdm_data = data.CAMELS(
         idx_list=range(0, 14600),
         parameters=['Omega_m', 'sigma_8', 'A_SN1', 'A_SN2', 'A_AGN1', 'A_AGN2'],
-        suite="IllustrisTNG" if wdm else "Astrid",
+        suite="IllustrisTNG",
         dataset="WDM" if wdm else "LH",
         map_type="Mcdm"
     )
     val_data = data.CAMELS(
         idx_list=range(14600, 15000),
         parameters=['Omega_m', 'sigma_8', 'A_SN1', 'A_SN2', 'A_AGN1', 'A_AGN2'],
-        suite="IllustrisTNG" if wdm else "Astrid",
+        suite="IllustrisTNG",
         dataset="WDM" if wdm else "LH",
         map_type="Mcdm"
     )
 
-fm = represent.Represent.load_from_checkpoint("reversion_2/step=step=25100-val_loss=0.276.ckpt")
+fm = represent.Represent.load_from_checkpoint("reversion_2_126lat/step=step=60600-val_loss=0.232.ckpt")
 fm.encoder = fm.encoder.cuda()
 for p in fm.encoder.parameters():
     p.requires_grad = False
@@ -66,7 +66,7 @@ fm.eval()
 
 train_loader = DataLoader(
     cdm_data,
-    batch_size=128,
+    batch_size=126,
     shuffle=False,
     num_workers=1,
     pin_memory=True,
@@ -74,7 +74,7 @@ train_loader = DataLoader(
 
 test_loader = DataLoader(
     val_data,
-    batch_size=128,
+    batch_size=126,
     shuffle=False,
     num_workers=1,
     pin_memory=True,
@@ -114,7 +114,7 @@ print("Loaded data")
 # Set up training: use ParamEstVec for latent vector inference
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 if latent:
-    model = pe.ParamEstVec(hidden_dim=5, num_hiddens=5, in_dim=2304, output_size=(1 if wdm else 2)).to(device)
+    model = pe.ParamEstVec(hidden_dim=5, num_hiddens=5, in_dim=126, output_size=(1 if wdm else 2)).to(device)
 else:
     model = pe.ParamEstimatorImg(hidden=5, dr=0.1, channels=1, output_size=(1 if wdm else 2)).to(device)
 
@@ -130,13 +130,13 @@ def objective(trial):
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if latent:
-        model = pe.ParamEstVec(hidden_dim=hidden_dim, num_hiddens=hidden, in_dim=2304, output_size=(1 if wdm else 2)).to(device)
+        model = pe.ParamEstVec(hidden_dim=hidden_dim, num_hiddens=hidden, in_dim=126, output_size=(1 if wdm else 2)).to(device)
     else:
         model = pe.ParamEstimatorImg(hidden=hidden, dr=0.1, channels=1, output_size=(1 if wdm else 2)).to(device)
     
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     
-    num_epochs = 30  # Reduced epochs for faster Optuna trials
+    num_epochs = 100  # Reduced epochs for faster Optuna trials
     best_val_loss = float('inf')
     
     for epoch in range(num_epochs):
@@ -171,18 +171,18 @@ def objective(trial):
     return best_val_loss
 
 # Uncomment below to run Optuna optimization
-# study = optuna.create_study(direction='minimize')
-# study.optimize(objective, n_trials=50)
-# best_params = study.best_params
-# print("Best hyperparameters:", best_params)
+study = optuna.create_study(direction='minimize')
+study.optimize(objective, n_trials=30)
+best_params = study.best_params
+print("Best hyperparameters:", best_params)
 
 # Train final model using ParamEstVec with chosen hyperparameters
 if latent:
-    model = pe.ParamEstVec(hidden_dim=1000, num_hiddens=2, in_dim=2304, output_size=(1 if wdm else 2)).to(device)
+    model = pe.ParamEstVec(hidden_dim=best_params['hidden_dim'], num_hiddens=best_params['hidden'], in_dim=126, output_size=(1 if wdm else 2)).to(device)
 else:
     model = pe.ParamEstimatorImg(hidden=5, dr=0.1, channels=1, output_size=(1 if wdm else 2)).to(device)
 
-final_optimizer = optim.Adam(model.parameters(), lr=1e-4)
+final_optimizer = optim.Adam(model.parameters(), lr=best_params['lr'], weight_decay=best_params['weight_decay'])
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(final_optimizer, T_max=500, eta_min=1e-7)
 
 best_loss = float('inf')
@@ -274,6 +274,7 @@ for i, param_name in enumerate(plot_labels):
     # Compute and plot line of best fit
     if not wdm:
         slope, intercept = np.polyfit(x, y, 1)
+        print(param_name, " slope ", slope, "intercept ", intercept)
         best_fit_line = slope * x + intercept
         plt.plot(x, best_fit_line, 'b-', label=f'Fit: y={slope:.2f}x')
     else:

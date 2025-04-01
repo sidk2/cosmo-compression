@@ -156,7 +156,7 @@ class UpsamplingUNetConv(nn.Module):
         int_channels: int | None = None,
         residual: bool = False,
         time_dim: int = 256,
-        latent_vec_dim: int = 256,
+        latent_vec_dim: int = 14,
     ):
         super().__init__()
         self.residual = residual
@@ -224,7 +224,7 @@ class UNetConv(nn.Module):
         time_dim: int,
         int_channels: int | None = None,
         residual: bool = False,
-        latent_vec_dim: int = 256,
+        latent_vec_dim: int = 14,
     ):
         super().__init__()
         self.residual = residual
@@ -410,7 +410,7 @@ class UNet(nn.Module):
         n_channels: int,
         time_dim: int = 256,
         latent_img_channels: int = 32,
-        latent_vec_dim: int = 256 * 9,
+        latent_vec_dim: int = 14,
     ):
         super(UNet, self).__init__()
         self.time_dim = time_dim
@@ -577,26 +577,26 @@ class UNet(nn.Module):
         spatial, repr = z
 
         # Downsampling stages
-        x1 = self.inc(x, t, repr[:, 0:256])
+        x1 = self.inc(x, t, repr[:, 0:self.latent_vec_dim])
         x1 = torch.cat([self.latent_upsampler_0(spatial[:, 0:self.num_latent_channels // 4, :, :]), x1], dim=1)
-        x2 = self.down1(x1, t, repr[:, 256:512])
+        x2 = self.down1(x1, t, repr[:, self.latent_vec_dim:self.latent_vec_dim*2])
         x2 = torch.cat([self.latent_upsampler_1(spatial[:, (self.num_latent_channels // 4):2*self.num_latent_channels // 4, :, :]), x2], dim=1)
-        x3 = self.down2(x2, t, repr[:, 512:768])
+        x3 = self.down2(x2, t, repr[:, self.latent_vec_dim*2:self.latent_vec_dim*3])
         x3 = self.sa2(x3)
         x3 = torch.cat([self.latent_upsampler_2(spatial[:, (2*self.num_latent_channels // 4):3*self.num_latent_channels // 4, :, :]), x3], dim=1)
-        x4 = self.down3(x3, t, repr[:, 768:1024])
+        x4 = self.down3(x3, t, repr[:, self.latent_vec_dim*3:self.latent_vec_dim*4])
         x4 = self.sa3(x4)
         x4 = torch.cat([self.latent_upsampler_3(spatial[:, (3*self.num_latent_channels // 4):4*self.num_latent_channels // 4, :, :]), x4], dim=1)
-        x5 = self.down4(x4, t, repr[:, 1024:1280])
+        x5 = self.down4(x4, t, repr[:, self.latent_vec_dim*4:self.latent_vec_dim*5])
 
         # Upsampling stages
-        x = self.up0(x5, x4, t, repr[:, 1280:1536])
+        x = self.up0(x5, x4, t, repr[:, self.latent_vec_dim*5:self.latent_vec_dim*6])
         # x = self.sa0_inv(x)
-        x = self.up1(x, x3, t, repr[:, 1536:1792])
+        x = self.up1(x, x3, t, repr[:, self.latent_vec_dim*6:self.latent_vec_dim*7])
         x = self.sa1_inv(x)
-        x = self.up2(x, x2, t, repr[:, 1792:2048])
+        x = self.up2(x, x2, t, repr[:, self.latent_vec_dim*7:self.latent_vec_dim*8])
         # x = self.sa2_inv(x)
-        x = self.up3(x, x1, t, repr[:, 2048:2304])
+        x = self.up3(x, x1, t, repr[:, self.latent_vec_dim*8:self.latent_vec_dim*9])
         # x = self.sa3_inv(x)
         # output = self.outc(x, t, repr[:, self.latent_vec_dim // 2 : self.latent_vec_dim])
 

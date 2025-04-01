@@ -110,7 +110,7 @@ class ResNet(nn.Module):
 class ResNetEncoder(nn.Module):
     """Residual convolutional network (ResNet 18 architecture)"""
 
-    def __init__(self, in_channels: int, latent_img_channels: int = 32, fc_out_dim: int = 256 * 9):
+    def __init__(self, in_channels: int, latent_img_channels: int = 32, fc_out_dim: int = 14 * 9):
         super(ResNetEncoder, self).__init__()
         self.resnet_list = nn.ModuleList(
             [
