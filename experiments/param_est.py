@@ -114,6 +114,7 @@ else:
 print(cdm_data.shape, np.array(full_wdm.x).shape)
 train_dataset = TensorDataset(cdm_data, torch.tensor(np.array(full_wdm.x)))
 
+
 # encoded_images = []
 # with torch.no_grad():
 #     for images, _ in tqdm.tqdm(test_loader):
