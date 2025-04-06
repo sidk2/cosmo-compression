@@ -17,31 +17,50 @@ import optuna
 
 from torchvision import transforms as T
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "5"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 def pct_error_loss(y_pred, y_true):
     return torch.mean(torch.abs((y_true - y_pred) / y_true))
 
-wdm = False
-latent = True
+wdm = True
+latent = False
 
 print("Performing parameter estimation with WDM =", wdm, "and Latent =", latent)
 
 if wdm:
-    cdm_data = data.CAMELS(
-        idx_list=range(0, 14000),
-        parameters=['Omega_m', 'sigma_8', "A_SN1", "A_SN2", "A_AGN1", "Wdm"],
-        suite="IllustrisTNG",
-        dataset="WDM" if wdm else "LH",
-        map_type="Mcdm"
-    )
-    val_data = data.CAMELS(
-        idx_list=range(14000, 15000),
-        parameters=['Omega_m', 'sigma_8', "A_SN1", "A_SN2", "A_AGN1", "Wdm"],
-        suite="IllustrisTNG",
-        dataset="WDM" if wdm else "LH",
-        map_type="Mcdm"
-    )
+    if latent:
+        cdm_data = data.CAMELS(
+            idx_list=range(0, 14000),
+            parameters=['Omega_m', 'sigma_8', "A_SN1", "A_SN2", "A_AGN1", "Wdm"],
+            suite="IllustrisTNG",
+            dataset="WDM" if wdm else "LH",
+            map_type="Mcdm"
+        )
+        val_data = data.CAMELS(
+            idx_list=range(14000, 15000),
+            parameters=['Omega_m', 'sigma_8', "A_SN1", "A_SN2", "A_AGN1", "Wdm"],
+            suite="IllustrisTNG",
+            dataset="WDM" if wdm else "LH",
+            map_type="Mcdm"
+        )
+    else:
+        cdm_data = np.load("../../../monolith/global_data/astro_compression/CAMELS/images/wdm_latents.npy")[:14000]
+        val_data = np.load("../../../monolith/global_data/astro_compression/CAMELS/images/wdm_latents.npy")[14000:]
+        full_wdm = data.CAMELS(
+            idx_list=range(0, 14000),
+            parameters=['Omega_m', 'sigma_8', "A_SN1", "A_SN2", "A_AGN1", "Wdm"],
+            suite="IllustrisTNG",
+            dataset="WDM" if wdm else "LH",
+            map_type="Mcdm"
+        )
+        full_val = data.CAMELS(
+            idx_list=range(14000, 15000),
+            parameters=['Omega_m', 'sigma_8', "A_SN1", "A_SN2", "A_AGN1", "Wdm"],
+            suite="IllustrisTNG",
+            dataset="WDM" if wdm else "LH",
+            map_type="Mcdm"
+        )
+        
 else:
     cdm_data = data.CAMELS(
         idx_list=range(0, 14600),
@@ -58,52 +77,53 @@ else:
         map_type="Mcdm"
     )
 
-fm = represent.Represent.load_from_checkpoint("reversion_2_126lat/step=step=60600-val_loss=0.232.ckpt")
-fm.encoder = fm.encoder.cuda()
-for p in fm.encoder.parameters():
-    p.requires_grad = False
-fm.eval()
+# fm = represent.Represent.load_from_checkpoint("reversion_2_126lat/step=step=60600-val_loss=0.232.ckpt")
+# fm.encoder = fm.encoder.cuda()
+# for p in fm.encoder.parameters():
+#     p.requires_grad = False
+# fm.eval()
 
-train_loader = DataLoader(
-    cdm_data,
-    batch_size=126,
-    shuffle=False,
-    num_workers=1,
-    pin_memory=True,
-)
+# train_loader = DataLoader(
+#     cdm_data,
+#     batch_size=126,
+#     shuffle=False,
+#     num_workers=1,
+#     pin_memory=True,
+# )
 
-test_loader = DataLoader(
-    val_data,
-    batch_size=126,
-    shuffle=False,
-    num_workers=1,
-    pin_memory=True,
-)
+# test_loader = DataLoader(
+#     val_data,
+#     batch_size=126,
+#     shuffle=False,
+#     num_workers=1,
+#     pin_memory=True,
+# )
 
-# Build the encoded dataset using the latent vector output from the encoder
-encoded_images = []
-with torch.no_grad():
-    for images, _ in tqdm.tqdm(train_loader):
-        images = images.cuda()
-        if latent:
-            # Assume encoder returns (spatial_latent, latent_vector)
-            _, latent_vector = fm.encoder(images)
-            images = latent_vector
-        encoded_images.append(images.cpu())
+# # Build the encoded dataset using the latent vector output from the encoder
+# encoded_images = []
+# with torch.no_grad():
+#     for images, _ in tqdm.tqdm(train_loader):
+#         images = images.cuda()
+#         if latent:
+#             # Assume encoder returns (spatial_latent, latent_vector)
+#             _, latent_vector = fm.encoder(images)
+#             images = latent_vector
+#         encoded_images.append(images.cpu())
 
-encoded_images = torch.cat(encoded_images, dim=0)
-train_dataset = TensorDataset(encoded_images, torch.tensor(cdm_data.x))
+# encoded_images = torch.cat(encoded_images, dim=0)
+print(cdm_data.shape, np.array(full_wdm.x).shape)
+train_dataset = TensorDataset(cdm_data, torch.tensor(np.array(full_wdm.x)))
 
-encoded_images = []
-with torch.no_grad():
-    for images, _ in tqdm.tqdm(test_loader):
-        images = images.cuda()
-        if latent:
-            _, latent_vector = fm.encoder(images)
-            images = latent_vector
-        encoded_images.append(images.cpu())
-encoded_images = torch.cat(encoded_images, dim=0)
-test_dataset = TensorDataset(encoded_images, torch.tensor(val_data.x))
+# encoded_images = []
+# with torch.no_grad():
+#     for images, _ in tqdm.tqdm(test_loader):
+#         images = images.cuda()
+#         if latent:
+#             _, latent_vector = fm.encoder(images)
+#             images = latent_vector
+#         encoded_images.append(images.cpu())
+# encoded_images = torch.cat(encoded_images, dim=0)
+test_dataset = TensorDataset(val_data, torch.tensor(full_val.x))
 
 # Create new data loaders from the latent dataset
 train_loader = DataLoader(train_dataset, batch_size=512, shuffle=True)
