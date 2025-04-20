@@ -22,13 +22,13 @@ cdm_params_path = os.path.join(save_dir, "cdm_params.npy")
 wdm_latents_path = os.path.join(save_dir, "wdm_latents.npy")
 wdm_params_path = os.path.join(save_dir, "wdm_params.npy")
 
-use_latents = True
+use_latents = False
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["CUDA_VISIBLE_DEVICES"] = "5"
 
 
 # Load model
-fm = represent.Represent.load_from_checkpoint("reversion_2_126lat/step=step=60600-val_loss=0.232.ckpt")
+fm = represent.Represent.load_from_checkpoint("masked_flow_matching/step=step=25100-val_loss=0.263.ckpt")
 fm.encoder = fm.encoder.cuda()
 for p in fm.encoder.parameters():
     p.requires_grad = False
@@ -45,9 +45,10 @@ def compute_latents(dataset, is_cdm=True):
             data = torch.tensor(data).unsqueeze(0).cuda()
             spatial, vec = fm.encoder(data)
             latent = spatial, vec.unsqueeze(0)
-            out = fm.decoder.predict(x0=torch.randn_like(data), h=latent, n_sampling_steps=n_sampling_steps)
+            # out = fm.decoder.predict(x0=torch.randn_like(data), h=latent, n_sampling_steps=n_sampling_steps)
             params.append(cosmo)
-            diff.append((data - out).cpu().numpy()[0, 0, :, :])
+            diff.append(latent[1].cpu().numpy())
+            # diff.append((data - out).cpu().numpy()[0, 0, :, :])
             
     return np.array(diff), np.array(params)
 
@@ -132,48 +133,48 @@ test_loader = DataLoader(dataset_test, batch_size=512, shuffle=False)
 
 # # Initialize model, loss, and optimizer
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model = ad.AnomalyDetectorImg(hidden=5, channels=1, dr=0.1).to(device)
+model = ad.ADVec(hidden_dim=200, num_hiddens=3, in_dim=126, output_size=1).to(device)
 criterion = nn.BCEWithLogitsLoss()
-optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=1.0062357803767319e-05)
+optimizer = optim.Adam(model.parameters(), lr=0.0001, weight_decay=1.0062357803767319e-05)
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=100, eta_min=1e-7)
 
 # # Training loop
-# num_epochs = 30
-# best_val_loss = float('inf')
-# best_model_state = None
+num_epochs = 300
+best_val_loss = float('inf')
+best_model_state = None
 
-# for epoch in range(num_epochs):
-#     model.train()
-#     running_loss = 0.0
-#     for inputs, labels in train_loader:
-#         inputs, labels = inputs.to(device).squeeze(0), labels.to(device)
-#         optimizer.zero_grad()
-#         outputs = model(inputs)
-#         loss = criterion(outputs.squeeze(), labels.float())
-#         loss.backward()
-#         optimizer.step()
-#         running_loss += loss.item()
+for epoch in range(num_epochs):
+    model.train()
+    running_loss = 0.0
+    for inputs, labels in train_loader:
+        inputs, labels = inputs.to(device).squeeze(0), labels.to(device)
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        loss = criterion(outputs.squeeze(), labels.float())
+        loss.backward()
+        optimizer.step()
+        running_loss += loss.item()
     
-#     model.eval()
-#     val_loss = 0.0
-#     with torch.no_grad():
-#         for inputs, labels in val_loader:
-#             inputs, labels = inputs.to(device).squeeze(0), labels.to(device)
-#             outputs = model(inputs)
-#             loss = criterion(outputs.squeeze(), labels.float())
-#             val_loss += loss.item()
+    model.eval()
+    val_loss = 0.0
+    with torch.no_grad():
+        for inputs, labels in val_loader:
+            inputs, labels = inputs.to(device).squeeze(0), labels.to(device)
+            outputs = model(inputs)
+            loss = criterion(outputs.squeeze(), labels.float())
+            val_loss += loss.item()
     
-#     val_loss /= len(val_loader)
-#     if val_loss < best_val_loss:
-#         best_val_loss = val_loss
-#         best_model_state = model.state_dict()
+    val_loss /= len(val_loader)
+    if val_loss < best_val_loss:
+        best_val_loss = val_loss
+        best_model_state = model.state_dict()
     
-#     scheduler.step()
-#     print(f"Epoch {epoch+1}, Loss: {running_loss / len(train_loader)}, Val Loss: {val_loss}")
+    scheduler.step()
+    print(f"Epoch {epoch+1}, Loss: {running_loss / len(train_loader)}, Val Loss: {val_loss}")
 
 
 # Save best model state
-# torch.save(best_model_state, f"cosmo_compression/downstream/ad_params_latent_{use_latents}.pt")
+torch.save(best_model_state, f"cosmo_compression/downstream/ad_params_latent_{use_latents}.pt")
 # Evaluate model on test set
 model.load_state_dict(torch.load(f"cosmo_compression/downstream/ad_params_latent_{use_latents}.pt"))
 
@@ -190,12 +191,6 @@ with torch.no_grad():
         outputs = model(inputs)
         predicted = (torch.sigmoid(outputs.squeeze()) > 0.5).long()
         correct += torch.sum(predicted == labels)
-        
-        # Identify misclassified WDM samples
-        incorrect_indices = (predicted != labels) & (labels == 1)
-        for idx in incorrect_indices.nonzero(as_tuple=True)[0]:
-            print("Got one wrong!")
-            incorrect_wdm_params.append(wdm_params[-1][idx.item()])
 
 print(incorrect_wdm_params)
 # Save incorrect WDM parameters
