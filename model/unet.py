@@ -73,72 +73,6 @@ class SelfAttention(nn.Module):
         x = self.ff_self(x) + x
         return x.swapaxes(2, 1).view(-1, self.channels, size, size)
 
-
-# class SelfAttention(nn.Module):
-#     """Self-attention module using patching strategy to reduce sequence length"""
-
-#     def __init__(self, channels: int, patch_size: int = 2):
-#         """
-#         Args:
-#             channels (int): Number of input channels.
-#             patch_size (int): Size of each patch (patch_size x patch_size).
-#         """
-#         super(SelfAttention, self).__init__()
-#         self.channels = channels
-#         self.patch_size = patch_size
-
-#         # Patching: Embed each non-overlapping patch using a convolution.
-#         # This reduces the spatial dimensions by a factor of patch_size.
-#         self.patch_embed = nn.Conv2d(
-#             channels, channels, kernel_size=patch_size, stride=patch_size
-#         )
-
-#         # Multi-head attention: expects input shape (batch, tokens, channels)
-#         self.mha = nn.MultiheadAttention(channels, num_heads=1, batch_first=True)
-
-#         # Feedforward network with residual connection.
-#         self.ff_self = nn.Sequential(
-#             nn.LayerNorm(channels),
-#             nn.Linear(channels, channels),
-#             nn.GELU(),
-#             nn.Linear(channels, channels),
-#         )
-
-#         # Unpatching: Recover the original spatial resolution using a transposed convolution.
-#         self.patch_unembed = nn.ConvTranspose2d(
-#             channels, channels, kernel_size=patch_size, stride=patch_size
-#         )
-
-#     def forward(self, x: torch.Tensor) -> torch.Tensor:
-#         """
-#         Args:
-#             x (torch.Tensor): Input tensor of shape (batch, channels, height, width).
-#         Returns:
-#             torch.Tensor: Output tensor with the same spatial resolution as the input.
-#         """
-#         # 1. Patchify the input: embed non-overlapping patches.
-#         #    The output shape will be (batch, channels, H_p, W_p) where H_p = height/patch_size.
-#         patches = self.patch_embed(x)
-
-#         # 2. Flatten spatial dimensions to form tokens.
-#         batch, c, H_p, W_p = patches.shape
-#         # Reshape to (batch, tokens, channels)
-#         tokens = patches.view(batch, c, H_p * W_p).transpose(1, 2)
-
-#         # 3. Apply multi-head self-attention.
-#         tokens, _ = self.mha(tokens, tokens, tokens)
-
-#         # 4. Apply the feedforward network with a residual connection.
-#         tokens = tokens + self.ff_self(tokens)
-
-#         # 5. Reshape tokens back to patch grid.
-#         patches = tokens.transpose(1, 2).view(batch, c, H_p, W_p)
-
-#         # 6. Unpatch: Reconstruct the spatial dimensions.
-#         out = self.patch_unembed(patches)
-#         return out
-
-
 def subpel_conv3x3(in_ch: int, out_ch: int, r: int = 1) -> nn.Sequential:
     """3x3 sub-pixel convolution for up-sampling."""
     return nn.Sequential(
@@ -176,17 +110,17 @@ class UpsamplingUNetConv(nn.Module):
             num_groups=compute_groups(out_channels),
         )
 
-        self.t_scale_proj_1 = nn.Linear(time_dim, int_channels)
-        self.t_bias_proj_1 = nn.Linear(time_dim, int_channels)
+        self.t_scale_proj_1 = nn.Linear(time_dim, int_channels) if time_dim != 0 else None
+        self.t_bias_proj_1 = nn.Linear(time_dim, int_channels) if time_dim != 0 else None
 
-        self.t_scale_proj_2 = nn.Linear(time_dim, out_channels)
-        self.t_bias_proj_2 = nn.Linear(time_dim, out_channels)
+        self.t_scale_proj_2 = nn.Linear(time_dim, out_channels) if time_dim != 0 else None
+        self.t_bias_proj_2 = nn.Linear(time_dim, out_channels) if time_dim != 0 else None
 
-        self.z_scale_proj_1 = nn.Linear(latent_vec_dim, int_channels)
-        self.z_bias_proj_1 = nn.Linear(latent_vec_dim, int_channels)
+        self.z_scale_proj_1 = nn.Linear(latent_vec_dim, int_channels) if latent_vec_dim != 0 else None
+        self.z_bias_proj_1 = nn.Linear(latent_vec_dim, int_channels) if latent_vec_dim != 0 else None
 
-        self.z_scale_proj_2 = nn.Linear(latent_vec_dim, out_channels)
-        self.z_bias_proj_2 = nn.Linear(latent_vec_dim, out_channels)
+        self.z_scale_proj_2 = nn.Linear(latent_vec_dim, out_channels) if latent_vec_dim != 0 else None
+        self.z_bias_proj_2 = nn.Linear(latent_vec_dim, out_channels) if latent_vec_dim != 0 else None
 
     def forward(self, x: torch.Tensor, t=None, z=None) -> torch.Tensor:
         """Overloads forward method of nn.Module"""
@@ -256,17 +190,17 @@ class UNetConv(nn.Module):
             num_groups=compute_groups(out_channels),
         )
 
-        self.t_scale_proj_1 = nn.Linear(time_dim, int_channels)
-        self.t_bias_proj_1 = nn.Linear(time_dim, int_channels)
+        self.t_scale_proj_1 = nn.Linear(time_dim, int_channels) if time_dim != 0 else None
+        self.t_bias_proj_1 = nn.Linear(time_dim, int_channels) if time_dim != 0 else None
 
-        self.t_scale_proj_2 = nn.Linear(time_dim, out_channels)
-        self.t_bias_proj_2 = nn.Linear(time_dim, out_channels)
+        self.t_scale_proj_2 = nn.Linear(time_dim, out_channels) if time_dim != 0 else None
+        self.t_bias_proj_2 = nn.Linear(time_dim, out_channels) if time_dim != 0 else None
 
-        self.z_scale_proj_1 = nn.Linear(latent_vec_dim, int_channels)
-        self.z_bias_proj_1 = nn.Linear(latent_vec_dim, int_channels)
+        self.z_scale_proj_1 = nn.Linear(latent_vec_dim, int_channels) if latent_vec_dim != 0 else None
+        self.z_bias_proj_1 = nn.Linear(latent_vec_dim, int_channels) if latent_vec_dim != 0 else None
 
-        self.z_scale_proj_2 = nn.Linear(latent_vec_dim, out_channels)
-        self.z_bias_proj_2 = nn.Linear(latent_vec_dim, out_channels)
+        self.z_scale_proj_2 = nn.Linear(latent_vec_dim, out_channels) if latent_vec_dim != 0 else None
+        self.z_bias_proj_2 = nn.Linear(latent_vec_dim, out_channels) if latent_vec_dim != 0 else None
 
     def forward(
         self,
@@ -330,7 +264,7 @@ class DownStep(nn.Module):
         )
         self.gdn_layer = gdn.GDN(ch=out_channels, device="cuda")
 
-    def forward(self, x: torch.Tensor, t, z) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, t: torch.Tensor | None = None, z: torch.Tensor | None = None) -> torch.Tensor:
         """Overloads forward method of nn.Module"""
         return self.gdn_layer(self.conv2(self.conv1(self.pooling(x), t, z), t, z))
 
@@ -362,10 +296,10 @@ class UpStep(nn.Module):
 
         self.gdn_layer = gdn.GDN(ch=out_channels, device="cuda", inverse=True)
 
-    def forward(self, x: torch.Tensor, res_x: torch.Tensor, t, z) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, res_x: torch.Tensor | None = None, t: torch.Tensor | None = None, z: torch.Tensor | None = None) -> torch.Tensor:
         """Overloads forward method of nn.Module"""
         x = self.conv1(x, t, z)
-        x = torch.cat([res_x, x], dim=1)
+        if res_x is not None: x = torch.cat([res_x, x], dim=1)
         x = self.conv2(x, t, z)
         return self.gdn_layer(x)
 
@@ -415,11 +349,11 @@ class UNet(nn.Module):
         super(UNet, self).__init__()
         self.time_dim = time_dim
         self.n_channels = n_channels
-        self.num_latent_channels = latent_img_channels
+        self.num_latent_channels = 0
 
         self.dropout = nn.Dropout2d(p=0.1)
         self.inc = UNetConv(
-            in_channels=n_channels,
+            in_channels=n_channels + 1,
             out_channels=64,
             time_dim=time_dim,
             residual=True,
@@ -429,7 +363,6 @@ class UNet(nn.Module):
             out_channels=128,
             time_dim=time_dim,
         )
-        # self.sa1 = SelfAttention(channels=128)
         self.down2 = DownStep(
             in_channels=128 + self.num_latent_channels // 4,
             out_channels=256,
@@ -483,67 +416,6 @@ class UNet(nn.Module):
             padding=0,
             bias=True,
         )
-        self.latent_upsampler_0 = nn.Sequential(
-            UpStepWoutRes(
-                in_channels=int(self.num_latent_channels // 4),
-                out_channels=int(self.num_latent_channels // 4),
-                time_dim=time_dim,
-            ),
-            UpStepWoutRes(
-                in_channels=int(self.num_latent_channels // 4),
-                out_channels=int(self.num_latent_channels // 4),
-                time_dim=time_dim,
-            ),
-            UpStepWoutRes(
-                in_channels=int(self.num_latent_channels // 4),
-                out_channels=int(self.num_latent_channels // 4),
-                time_dim=time_dim,
-            ),
-            UpStepWoutRes(
-                in_channels=int(self.num_latent_channels // 4),
-                out_channels=int(self.num_latent_channels // 4),
-                time_dim=time_dim,
-            ),
-        )
-
-        self.latent_upsampler_1 = nn.Sequential(
-            UpStepWoutRes(
-                in_channels=int(self.num_latent_channels // 4),
-                out_channels=int(self.num_latent_channels // 4),
-                time_dim=time_dim,
-            ),
-            UpStepWoutRes(
-                in_channels=int(self.num_latent_channels // 4),
-                out_channels=int(self.num_latent_channels // 4),
-                time_dim=time_dim,
-            ),
-            UpStepWoutRes(
-                in_channels=int(self.num_latent_channels // 4),
-                out_channels=int(self.num_latent_channels // 4),
-                time_dim=time_dim,
-            ),
-        )
-
-        self.latent_upsampler_2 = nn.Sequential(
-            UpStepWoutRes(
-                in_channels=int(self.num_latent_channels // 4),
-                out_channels=int(self.num_latent_channels // 4),
-                time_dim=time_dim,
-            ),
-            UpStepWoutRes(
-                in_channels=int(self.num_latent_channels // 4),
-                out_channels=int(self.num_latent_channels // 4),
-                time_dim=time_dim,
-            ),
-        )
-
-        self.latent_upsampler_3 = nn.Sequential(
-            UpStepWoutRes(
-                in_channels=int(self.num_latent_channels // 4),
-                out_channels=int(self.num_latent_channels // 4),
-                time_dim=time_dim,
-            ),
-        )
 
         self.latent_vec_dim = latent_vec_dim
 
@@ -571,98 +443,72 @@ class UNet(nn.Module):
         z is the full latent, which will be split into latent_dim chunks
         """
         t = t.unsqueeze(-1)
-        spatial, repr = z
-        
-        num_segments_spatial = 4
-        seg_size_spatial = self.num_latent_channels // num_segments_spatial
-        num_mask_channels = (seg_size_spatial * t).floor().int()
-        
-        # For each sample in the batch, compute the mask per segment
-        spatial_out = torch.zeros_like(spatial)
-
-        for seg in range(num_segments_spatial):
-            start = seg * seg_size_spatial
-            end = (seg + 1) * seg_size_spatial
-
-            for b in range(t.shape[0]):
-                t_val = t[b].item()
-                num_mask_channels = int(seg_size_spatial * t_val)
-                unmasked = seg_size_spatial - num_mask_channels
-
-                # Copy masked part
-                if num_mask_channels > 0:
-                    spatial_out[b, start + unmasked:end, :, :] = 0  # mask
-
-                # Copy unmasked channels
-                if unmasked > 0:
-                    if unmasked == 1:
-                        spatial_out[b, start + unmasked - 1, :, :] = spatial[b, start + unmasked - 1, :, :]
-                    else:
-                        # detach earlier unmasked channels
-                        spatial_out[b, start:start+unmasked-1, :, :] = spatial[b, start:start+unmasked-1, :, :].detach()
-                        # last unmasked channel (no detach)
-                        spatial_out[b, start+unmasked-1, :, :] = spatial[b, start+unmasked-1, :, :]  
-        # --- Masking for repr ---
-
-        # Define segmentation parameters for repr.
-        batch_size = t.shape[0]
-        device = repr.device
-
-        num_segments_repr = 9
-        seg_size_repr = self.latent_vec_dim
-
-        # Create output tensor
-        repr_out = torch.zeros_like(repr)
-
-        for b in range(batch_size):
-            t_val = t[b].item()
-            num_mask_features = int(seg_size_repr * t_val)
-            
-            for seg in range(num_segments_repr):
-                start = seg * seg_size_repr
-                end = (seg + 1) * seg_size_repr
-                unmasked = seg_size_repr - num_mask_features
-
-                # Mask the last num_mask_features
-                if num_mask_features > 0:
-                    repr_out[b, start + unmasked:end] = 0  # masked part
-                
-                # Copy unmasked features
-                if unmasked > 0:
-                    if unmasked == 1:
-                        # Only one unmasked feature (don't detach it)
-                        repr_out[b, start + unmasked - 1] = repr[b, start + unmasked - 1]
-                    else:
-                        # Detach all but the last unmasked feature
-                        repr_out[b, start:start+unmasked-1] = repr[b, start:start+unmasked-1].detach()
-                        repr_out[b, start+unmasked-1] = repr[b, start+unmasked-1]
-
-    # --- End of masking ---
+        repr_out, x0 = z
         
         t = self.pos_encoding(t, self.time_dim)
 
         # Downsampling stages
-        x1 = self.inc(x, t, repr_out[:, 0:self.latent_vec_dim])
-        x1 = torch.cat([self.latent_upsampler_0(spatial_out[:, 0:self.num_latent_channels // 4, :, :]), x1], dim=1)
+        x1 = self.inc(torch.cat([x, x0], dim=1), t, repr_out[:, 0:self.latent_vec_dim])
         x2 = self.down1(x1, t, repr_out[:, self.latent_vec_dim:self.latent_vec_dim*2])
-        x2 = torch.cat([self.latent_upsampler_1(spatial_out[:, (self.num_latent_channels // 4):2*self.num_latent_channels // 4, :, :]), x2], dim=1)
         x3 = self.down2(x2, t, repr_out[:, self.latent_vec_dim*2:self.latent_vec_dim*3])
         x3 = self.sa2(x3)
-        x3 = torch.cat([self.latent_upsampler_2(spatial_out[:, (2*self.num_latent_channels // 4):3*self.num_latent_channels // 4, :, :]), x3], dim=1)
         x4 = self.down3(x3, t, repr_out[:, self.latent_vec_dim*3:self.latent_vec_dim*4])
         x4 = self.sa3(x4)
-        x4 = torch.cat([self.latent_upsampler_3(spatial_out[:, (3*self.num_latent_channels // 4):4*self.num_latent_channels // 4, :, :]), x4], dim=1)
         x5 = self.down4(x4, t, repr_out[:, self.latent_vec_dim*4:self.latent_vec_dim*5])
 
         # Upsampling stages
         x = self.up0(x5, x4, t, repr_out[:, self.latent_vec_dim*5:self.latent_vec_dim*6])
-        # x = self.sa0_inv(x)
         x = self.up1(x, x3, t, repr_out[:, self.latent_vec_dim*6:self.latent_vec_dim*7])
         x = self.sa1_inv(x)
         x = self.up2(x, x2, t, repr_out[:, self.latent_vec_dim*7:self.latent_vec_dim*8])
-        # x = self.sa2_inv(x)
         x = self.up3(x, x1, t, repr_out[:, self.latent_vec_dim*8:self.latent_vec_dim*9])
-        # x = self.sa3_inv(x)
-        # output = self.outc(x, t, repr[:, self.latent_vec_dim // 2 : self.latent_vec_dim])
 
         return self.outc(x)
+
+
+class EncoderDecoder(nn.Module):
+    def __init__(self, n_channels: int):
+        super().__init__()
+        self.encoder = nn.Sequential(
+            UNetConv(n_channels, 32, residual=True, time_dim=0),
+            DownStep(32, 64, time_dim=0),
+            DownStep(64, 64, time_dim=0),
+            SelfAttention(64),
+            DownStep(64, 128, time_dim=0),
+            SelfAttention(128),
+            DownStep(128, 512, time_dim=0),
+            nn.AdaptiveAvgPool2d((1,1)),
+            nn.Flatten()
+        )
+        self.fc_latent = nn.Linear(512, 512)  # Final latent vector
+
+        # Decoder
+        self.fc_expand = nn.Linear(512, 256 * 4 * 4)  # Expand back to feature map
+
+        self.decoder = nn.Sequential(
+            UpStep(256, 128, 0, time_dim=0),
+            SelfAttention(128),
+            UpStep(128, 64, 0, time_dim=0),
+            SelfAttention(64),
+            UpStep(64, 64, 0, time_dim=0),
+            UpStep(64, 32, 0, time_dim=0),
+            UpStep(32, 32, 0, time_dim=0),
+            UpStep(32, 32, 0, time_dim=0),
+            nn.Conv2d(32, n_channels, kernel_size=3, padding=1),
+        )
+
+        self.latent_vec_dim = 0
+
+    def forward(self, x):
+        batch_size = x.size(0)
+
+        # Encode
+        z = self.encoder(x)        # (B, 256)
+        z_latent = self.fc_latent(z)  # (B, 256)
+
+        # Decode
+        z_hat = self.fc_expand(z_latent).view(batch_size, 256, 4, 4)  # (B, 256, 4, 4)
+
+        x_rec = self.decoder(z_hat)
+
+        return z_latent, x_rec

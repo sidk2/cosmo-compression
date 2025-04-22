@@ -113,7 +113,7 @@ class FlowMatching(nn.Module):
         Args:
             - x0: The noise field if model is not reversed, else the training sample
             - h: The vector to be conditioned on
-            - n_sampling_steps: The number of steps to be sused when solving the flow matching ODE
+            - n_sampling_steps: The number of steps to be used when solving the flow matching ODE
             - solver: The differential equation solver. Options are "dopri5", "rk4", and "euler". Default is dopri5, which is the slowest but most accurate.
         Returns:
             - x1: The predicted training sample
