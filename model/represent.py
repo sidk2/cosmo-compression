@@ -18,6 +18,7 @@ from torchvision import transforms as T
 from cosmo_compression.model import flow_matching as fm
 from cosmo_compression.model import unet
 from cosmo_compression.model import resnet
+from cosmo_compression.model.autoenc import VariationalAutoEncoder  # Import the AutoEncoder
 
 def compute_pk(
     mesh: np.array,
@@ -54,14 +55,12 @@ def get_2d_embeddings(
     tsne = TSNE(n_components=2, random_state=42)
     return tsne.fit_transform(embeddings)
 
-
 def log_matplotlib_figure(figure_label: str):
     """log a matplotlib figure to wandb, avoiding plotly
 
     Args:
         figure_label (str): label for figure
     """
-    # Save plot to a buffer, otherwise wandb does ugly plotly
     buf = io.BytesIO()
     plt.savefig(
         buf,
@@ -70,7 +69,6 @@ def log_matplotlib_figure(figure_label: str):
     )
     buf.seek(0)
     image = Image.open(buf)
-    # Log the plot to wandb
     wandb.log({f"{figure_label}": wandb.Image(image)})
 
 
@@ -81,66 +79,62 @@ class Represent(LightningModule):
         log_wandb: bool = True,
         reverse: bool = False,
         latent_img_channels: int = 64,
-        pretrain_steps: int = 1000,  # NEW: how many steps to pretrain
+        latent_dim: int = 256,  # Latent dimension for the AE
     ):
         super().__init__()
         self.save_hyperparameters()
         self.unconditional = unconditional
         self.log_wandb = log_wandb
         self.latent_img_channels = latent_img_channels
-        self.encoder = self.initialize_encoder(in_channels=1)
+        self.latent_dim = latent_dim
+        
+        # Initialize AutoEncoder and Flow Matching Decoder
+        self.encoder = VariationalAutoEncoder(in_channels=1, latent_dim=self.latent_dim)
         velocity_model = self.initialize_velocity()
         self.decoder = fm.FlowMatching(velocity_model, reverse=reverse)
+        
         self.validation_step_outputs = []
-
-        self.pretrain_steps = pretrain_steps  # NEW
-        self.total_steps = 0  # NEW
+        
+        self.total_steps = 374
+        self.training_steps = 500
 
     def initialize_velocity(self) -> nn.Module:
         return unet.UNet(
             n_channels=1,
             time_dim=256,
+            latent_img_channels=4*self.latent_img_channels,
         )
-
-    def initialize_encoder(self, in_channels: int) -> nn.Module:
-        return unet.EncoderDecoder(n_channels=in_channels)
 
     def get_loss(
         self,
         batch: Tuple[torch.Tensor, torch.Tensor],
     ) -> torch.Tensor:
         y, cosmo = batch
-        print("Running")
+        t = torch.rand((y.shape[0]), device=y.device)
+        out = self.encoder(y)
+        recon = out['reconstruction']
+        latent = out['mu']
 
-        if self.total_steps < self.pretrain_steps:
-            _, x0 = self.encoder(y)
-            _.requires_grad_()
-            _.retain_grad()
-            loss = torch.nn.functional.mse_loss(x0, y)
-            print(f"Latent grad norm: {_.grad.norm().item():.5f}")
-        else:
-            t = torch.rand((y.shape[0]), device=y.device)
-            z, x0 = self.encoder(y) if not self.unconditional else None
-            z.retain_grad()
-            loss = self.decoder.compute_loss(
-                x0=x0,
-                x1=y,
-                h=(z, x0),
-                t=t,
-            ) + 0.1 * torch.nn.functional.mse_loss(x0, y)
-
-        return loss
+        # Flow matching phase
+        x0 = recon
+        encoder_loss = 0
+        if self.total_steps < self.training_steps:
+            noise = torch.randn_like(x0, device=x0.device)
+            x0 = self.total_steps / self.training_steps * x0 + (self.training_steps - self.total_steps) / self.training_steps * noise
+            encoder_loss = self.encoder.loss_function(out, x=y)['loss']
+        return self.decoder.compute_loss(
+            x0=x0,
+            x1=y,
+            h=(latent, recon),
+            t=t,
+        ) + encoder_loss
 
     def training_step(
         self,
         batch: Tuple[np.array, np.array],
-    ) -> torch.Tensor | int:
+    ) -> torch.Tensor:
         loss = self.get_loss(batch=batch)
-
         self.log("train_loss", loss, prog_bar=True, sync_dist=True)
-
-        self.total_steps += 1  # NEW: Track how many steps have passed
-
         return loss
 
     def validation_step(
@@ -152,13 +146,16 @@ class Represent(LightningModule):
 
     def on_validation_epoch_end(self) -> None:
         mean_val_loss = torch.stack(
-            [output["val_loss"] for output in self.validation_step_outputs]
+            [o["val_loss"] for o in self.validation_step_outputs]
         ).mean()
         self.log("val_loss", mean_val_loss, prog_bar=True, sync_dist=True)
-
         batch = self.validation_step_outputs[0]["batch"]
         self._log_figures(batch, log=self.log_wandb)
         self.validation_step_outputs.clear()
+
+        # Increment step counter
+        self.total_steps += 1
+        self.log("total_steps", self.total_steps, prog_bar=True, sync_dist=True)
 
     @utilities.rank_zero_only
     def _log_figures(
@@ -166,38 +163,40 @@ class Represent(LightningModule):
         batch: Tuple[np.array, np.array],
         log=True,
     ) -> None:
-        y, cosmo = batch
-        z, x0 = self.encoder(y)
-
+        y, _ = batch
+        out = self.encoder(y)
+        recon = out['reconstruction']
+        latent = out['mu']
+        x0 = recon
+        
+        if self.total_steps < self.training_steps:
+            noise = torch.randn_like(x0, device=x0.device)
+            x0 = self.total_steps / self.training_steps * x0 + (self.training_steps - self.total_steps) / self.training_steps * noise
+        
         pred = self.decoder.predict(
-            x0,
-            h=(z, x0),
-            n_sampling_steps=50,
+            x0=x0,
+            h=(latent, recon), 
+            n_sampling_steps=30,
         )
         if log:
-            print("Logging")
-            fig, ax = plt.subplots(1, 2, figsize=(12, 4))
-            ax[0].imshow(y[0, :, :, :].detach().cpu().permute(1, 2, 0).numpy())
-            ax[1].imshow(pred[0, :, :, :].detach().cpu().permute(1, 2, 0).numpy())
-            ax[0].set_title("x")
-            ax[1].set_title("Reconstructed x")
-            plt.savefig("cosmo_compression/results/field_reconstruction.png")
+            fig, ax = plt.subplots(1, 3, figsize=(15, 4))
+            ax[0].imshow(y[0].permute(1, 2, 0).cpu().numpy())
+            ax[1].imshow(x0[0].permute(1, 2, 0).cpu().numpy())
+            ax[2].imshow(pred[0].permute(1, 2, 0).cpu().numpy())
+            for i, title in enumerate(["x", "Initial cond", "Reconstructed x"]):
+                ax[i].set_title(title)
             log_matplotlib_figure("field_reconstruction")
             plt.close()
 
-            fig, ax = plt.figure(), plt.axes()
-            ax.imshow(x0[0, :, :, :].detach().cpu().permute(1, 2, 0).numpy())
-            plt.savefig("cosmo_compression/results/latents.png")
-            log_matplotlib_figure("latents")
+            fig, ax = plt.subplots()
+            ax.imshow(recon[0].permute(1, 2, 0).cpu().numpy())
+            ax.set_title("AE output")
+            log_matplotlib_figure("ae_output")
             plt.close()
 
     def configure_optimizers(self) -> Dict[str, Any]:
-        optimizer = torch.optim.AdamW(self.parameters(), lr=1e-5)
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, factor=0.5, patience=10, min_lr=1e-8
-        )
-        return {
-            "optimizer": optimizer,
-            "lr_scheduler": scheduler,
-            "monitor": "val_loss",
-        }
+        optimizer = torch.optim.Adam([
+            {'params': self.encoder.parameters(), 'lr': 5e-5},
+            {'params': self.decoder.parameters(), 'lr': 5e-5},
+        ])
+        return {"optimizer": optimizer, "monitor": "val_loss"}

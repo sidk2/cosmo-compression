@@ -4,6 +4,8 @@ import torch
 from torch import nn
 from torchdyn.core import NeuralODE
 
+import matplotlib.pyplot as plt
+
 
 class ConditionedVelocityModel(nn.Module):
     """Neural net for velocity field prediction"""
@@ -30,8 +32,9 @@ class ConditionedVelocityModel(nn.Module):
         """Overloads forward method of nn.Module"""
         if not h:
             h = self.h
+        v = self.velocity_model(x, t=t, z=h)
         return (
-            -1 * self.velocity_model(x, t=t, z=h)
+            -1 * v
             if self.reverse
             else self.velocity_model(x, t=t, z=h)
         )
@@ -106,7 +109,7 @@ class FlowMatching(nn.Module):
         x0: torch.Tensor,
         h: torch.Tensor | None = None,
         n_sampling_steps: int = 100,
-        solver="dopri5",
+        solver="euler",
     ) -> torch.Tensor:
         """Runs inference for flow matching model.
 
@@ -124,7 +127,7 @@ class FlowMatching(nn.Module):
         )
         node = NeuralODE(
             conditional_velocity_model,
-            solver="euler",
+            solver=solver,
             sensitivity="adjoint",
         )
         with torch.no_grad():
@@ -132,4 +135,5 @@ class FlowMatching(nn.Module):
                 x0,
                 t_span=torch.linspace(0, 1, n_sampling_steps),
             )
+        
         return traj[-1]

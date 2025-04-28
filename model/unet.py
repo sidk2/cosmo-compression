@@ -1,7 +1,10 @@
 """Implements a UNet"""
 
+from typing import List
+
 import torch
 import torch.nn as nn
+import torchvision
 
 from cosmo_compression.model import gdn
 
@@ -90,21 +93,26 @@ class UpsamplingUNetConv(nn.Module):
         int_channels: int | None = None,
         residual: bool = False,
         time_dim: int = 256,
-        latent_vec_dim: int = 14,
+        latent_vec_dim: int = 256 // 9,
     ):
         super().__init__()
         self.residual = residual
         if not int_channels:
             int_channels = out_channels
-        self.conv1 = nn.Conv2d(
-            in_channels=in_channels, out_channels=int_channels, kernel_size=3, padding=1
+        self.conv1 = nn.Sequential(
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),
+            nn.Conv2d(in_channels, int_channels, kernel_size=3, padding=1)
         )
+        
         self.gn_1 = AdaGN(
             num_channels=int_channels,
             num_groups=compute_groups(int_channels),
         )
         self.gelu = nn.GELU()
-        self.conv2 = subpel_conv3x3(in_ch=int_channels, out_ch=out_channels, r=2)
+        
+        self.conv2 = nn.Conv2d(
+            in_channels=int_channels, out_channels=out_channels, kernel_size=3, padding=1
+        )
         self.gn_2 = AdaGN(
             num_channels=out_channels,
             num_groups=compute_groups(out_channels),
@@ -138,14 +146,13 @@ class UpsamplingUNetConv(nn.Module):
         z_s2 = self.z_scale_proj_2(z) if z is not None else None
         z_b2 = self.z_bias_proj_2(z) if z is not None else None
 
-        x = self.conv1(x)
-        x = self.gn_1(x, t_s1, t_b1, z_s1, z_b1)
-        x = self.gelu(x)
-        x = self.conv2(x)
+        x1 = self.conv1(x)
+        x1 = self.gn_1(x1, t_s1, t_b1, z_s1, z_b1)
+        x1 = self.gelu(x1)
+        x = self.conv2(x1)
         x = self.gn_2(x, t_s2, t_b2, z_s2, z_b2)
-        x = x + self.gelu(x)
 
-        return x
+        return self.gelu(x + x1)
 
 
 class UNetConv(nn.Module):
@@ -158,7 +165,7 @@ class UNetConv(nn.Module):
         time_dim: int,
         int_channels: int | None = None,
         residual: bool = False,
-        latent_vec_dim: int = 14,
+        latent_vec_dim: int = 256 // 9,
     ):
         super().__init__()
         self.residual = residual
@@ -344,7 +351,7 @@ class UNet(nn.Module):
         n_channels: int,
         time_dim: int = 256,
         latent_img_channels: int = 32,
-        latent_vec_dim: int = 14,
+        latent_vec_dim: int = 256 // 9,
     ):
         super(UNet, self).__init__()
         self.time_dim = time_dim
@@ -445,6 +452,7 @@ class UNet(nn.Module):
         t = t.unsqueeze(-1)
         repr_out, x0 = z
         
+                
         t = self.pos_encoding(t, self.time_dim)
 
         # Downsampling stages
@@ -460,55 +468,8 @@ class UNet(nn.Module):
         x = self.up0(x5, x4, t, repr_out[:, self.latent_vec_dim*5:self.latent_vec_dim*6])
         x = self.up1(x, x3, t, repr_out[:, self.latent_vec_dim*6:self.latent_vec_dim*7])
         x = self.sa1_inv(x)
+        
         x = self.up2(x, x2, t, repr_out[:, self.latent_vec_dim*7:self.latent_vec_dim*8])
         x = self.up3(x, x1, t, repr_out[:, self.latent_vec_dim*8:self.latent_vec_dim*9])
 
         return self.outc(x)
-
-
-class EncoderDecoder(nn.Module):
-    def __init__(self, n_channels: int):
-        super().__init__()
-        self.encoder = nn.Sequential(
-            UNetConv(n_channels, 32, residual=True, time_dim=0),
-            DownStep(32, 64, time_dim=0),
-            DownStep(64, 64, time_dim=0),
-            SelfAttention(64),
-            DownStep(64, 128, time_dim=0),
-            SelfAttention(128),
-            DownStep(128, 512, time_dim=0),
-            nn.AdaptiveAvgPool2d((1,1)),
-            nn.Flatten()
-        )
-        self.fc_latent = nn.Linear(512, 512)  # Final latent vector
-
-        # Decoder
-        self.fc_expand = nn.Linear(512, 256 * 4 * 4)  # Expand back to feature map
-
-        self.decoder = nn.Sequential(
-            UpStep(256, 128, 0, time_dim=0),
-            SelfAttention(128),
-            UpStep(128, 64, 0, time_dim=0),
-            SelfAttention(64),
-            UpStep(64, 64, 0, time_dim=0),
-            UpStep(64, 32, 0, time_dim=0),
-            UpStep(32, 32, 0, time_dim=0),
-            UpStep(32, 32, 0, time_dim=0),
-            nn.Conv2d(32, n_channels, kernel_size=3, padding=1),
-        )
-
-        self.latent_vec_dim = 0
-
-    def forward(self, x):
-        batch_size = x.size(0)
-
-        # Encode
-        z = self.encoder(x)        # (B, 256)
-        z_latent = self.fc_latent(z)  # (B, 256)
-
-        # Decode
-        z_hat = self.fc_expand(z_latent).view(batch_size, 256, 4, 4)  # (B, 256, 4, 4)
-
-        x_rec = self.decoder(z_hat)
-
-        return z_latent, x_rec

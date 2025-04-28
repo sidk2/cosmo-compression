@@ -17,7 +17,7 @@ import torch.nn as nn
 import wandb
 import os
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "0, 1, 2,3, 5"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0, 1, 2,3"
 
 from cosmo_compression.model import represent
 from cosmo_compression.data import data
@@ -139,7 +139,7 @@ def train(args):
         print(f"Running without Weights and Biases logging.")
 
     train_data = data.CAMELS(
-        idx_list=range(14_000),
+        idx_list=range(14000),
         map_type='Mcdm',
         parameters=['Omega_m', 'sigma_8',],
     )
@@ -151,7 +151,7 @@ def train(args):
         pin_memory=True,
     )
     val_data = data.CAMELS(
-        idx_list=range(14_000, 15_000),
+        idx_list=range(14000, 15000),
         map_type='Mcdm',
         parameters=['Omega_m', 'sigma_8',],
     )
@@ -184,13 +184,7 @@ def train(args):
             nn.init.kaiming_normal_(m.weight, a=0, mode='fan_in', nonlinearity='relu', generator=None)
             m.bias.data.fill_(0.01)
     
-    fm = represent.Represent(
-        log_wandb=args.use_wandb,
-        unconditional=args.unconditional,
-        latent_img_channels = 16,
-    )
-        
-    fm.apply(init_weights)
+    fm = represent.Represent.load_from_checkpoint(checkpoint_path="vae_fm_joint/last.ckpt")
     fm.train()
     
     trainer = Trainer(
@@ -200,7 +194,7 @@ def train(args):
         log_every_n_steps=50,
         accumulate_grad_batches=args.accumulate_gradients if args.accumulate_gradients is not None else 1,
         callbacks=[checkpoint_callback_phase_0, lr_monitor],
-        devices=5,
+        devices=4,
         check_val_every_n_epoch=None,
         val_check_interval=args.eval_every,
         max_epochs=300,
