@@ -42,7 +42,7 @@ loader = torchdata.DataLoader(
     pin_memory=True,
 )
 
-fm = represent.Represent.load_from_checkpoint("masked_flow_matching/step=step=25100-val_loss=0.263.ckpt")
+fm = represent.Represent.load_from_checkpoint("diti_cfm_mask_spatial_tvec/step=step=21500-val_loss=0.270.ckpt").cuda()
 fm.eval()
 
 gts = []
@@ -80,47 +80,36 @@ Pk_fin = Pk2D.Pk
 # Define latent vectors for gradient-based interpolation
 h_linear = []
 
-starting_img = gts[0][2][0]
-target_img = gts[-1][2][0]
-
-starting_vec = gts[0][2][1].unsqueeze(0)
-target_vec = gts[-1][2][1].unsqueeze(0)
+starting_img = gts[0][2]
+target_img = gts[-1][2]
 
 # Initialize a list for the interpolated latents
 h_linear = []
 # Define latent interpolation ranges and labels
 modulation_ranges = {
-    f"Stage 0" : list(range(0, 64, 16)) + list(range(1, 64, 16)),
-    f"Stage 1" : list(range(2, 64, 16)) + list(range(3, 64, 16)),
-    f"Stage 2" : list(range(4, 64, 16)) + list(range(5, 64, 16)),
-    f"Stage 3" : list(range(6, 64, 16)) + list(range(7, 64, 16)),
-    f"Stage 4" : list(range(8, 64, 16)) + list(range(9, 64, 16)),
-    f"Stage 5" : list(range(10, 64, 16)) + list(range(11, 64, 16)),
-    f"Stage 6" : list(range(12, 64, 16)) + list(range(13, 64, 16)),
-    f"Stage 7" : list(range(14, 64, 16)) + list(range(15, 64, 16)),
+    f"Stage 0" : list(range(15, 64, 16)),
+    f"Stage 1" : list(range(14, 64, 16)),
+    f"Stage 2" : list(range(13, 64, 16)),
+    f"Stage 3" : list(range(12, 64, 16)),
+    f"Stage 4" : list(range(11, 64, 16)),
+    f"Stage 5" : list(range(10, 64, 16)),
+    f"Stage 6" : list(range(9, 64, 16)),
+    f"Stage 7" : list(range(8, 64, 16)),
+    f"Stage 8" : list(range(7, 64, 16)),
+    f"Stage 9" : list(range(6, 64, 16)),
+    f"Stage 10" : list(range(5, 64, 16)),
+    f"Stage 11" : list(range(4, 64, 16)),
+    f"Stage 12" : list(range(3, 64, 16)),
+    f"Stage 13" : list(range(2, 64, 16)),
+    f"Stage 14" : list(range(1, 64, 16)),
+    f"Stage 15" : list(range(0, 64, 16)),
 }
-
-modulation_ranges_vec = {
-    f"Stage 7" : list(range(12, 126, 14)) + list(range(13, 126, 14)),
-    
-    
-    f"Stage 6" : list(range(10, 126, 14))+ list(range(11, 126, 14)),
-    f"Stage 5" : list(range(8, 126, 14)) + list(range(9, 126, 14)),
-    f"Stage 4" : list(range(7, 126, 14) ),
-
-   
-    f"Stage 3" : list(range(5, 126, 14) )+ list(range(6, 126, 14)),
-    f"Stage 2" : list(range(3, 126, 14) )+ list(range(4, 126, 14)),
-    f"Stage 1" : list(range(1, 126, 14) )+ list(range(2, 126, 14)),
-    f"Stage 0" : list(range(0, 126, 14)),
-    }
 
 num_samples_per_stage = 10
 all_interpolations = []
 labels = []
 
 current_image = starting_img.clone()
-current_vec = starting_vec.clone()
 
 for stage, (label, specified_channels) in enumerate(modulation_ranges.items()):
     # Perform interpolation for the specified channels
@@ -132,23 +121,15 @@ for stage, (label, specified_channels) in enumerate(modulation_ranges.items()):
             + t * target_img[:, specified_channels]
         )
         
-        interpolated_vec = current_vec.clone()  # Clone the current latent vector
-
-        interpolated_vec[:, modulation_ranges_vec[label]] = (
-            (1 - t) * starting_vec[:, modulation_ranges_vec[label]]
-            + t * target_vec[:, modulation_ranges_vec[label]]
-        )
         
         # Combine the latent vector (unchanged) with the interpolated image
-        all_interpolations.append((interpolated_image,  interpolated_vec))
+        all_interpolations.append(interpolated_image)
         labels.append(label)
 
     # Update current latent and image to the end of this stage
     current_image = interpolated_image.clone()
-    current_vec = interpolated_vec.clone()
-
-# # Reverse interpolation
-for stage, (label, specified_channels) in enumerate(modulation_ranges.items()):
+    
+for label, specified_channels in reversed(modulation_ranges.items()):
     # Perform interpolation for the specified channels
     for i in range(num_samples_per_stage):
         t = i / (num_samples_per_stage - 1)  # Interpolation factor
@@ -158,20 +139,13 @@ for stage, (label, specified_channels) in enumerate(modulation_ranges.items()):
             + t * starting_img[:, specified_channels]
         )
         
-        interpolated_vec = current_vec.clone()  # Clone the current latent vector
-
-        interpolated_vec[:, modulation_ranges_vec[label]] = (
-            (1 - t) * target_vec[:, modulation_ranges_vec[label]]
-            + t * starting_vec[:, modulation_ranges_vec[label]]
-        )
         
         # Combine the latent vector (unchanged) with the interpolated image
-        all_interpolations.append((interpolated_image,  interpolated_vec))
-        labels.append(label)
+        all_interpolations.append(interpolated_image)
+        labels.append("Reversed: " + label)
 
     # Update current latent and image to the end of this stage
     current_image = interpolated_image.clone()
-    current_vec = interpolated_vec.clone()
 
 # Generate multiple x0s and use the same set for all steps
 num_samples = 1

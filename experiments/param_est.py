@@ -17,18 +17,18 @@ import optuna
 
 from torchvision import transforms as T
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "5"
 
 def pct_error_loss(y_pred, y_true):
     return torch.mean(torch.abs((y_true - y_pred) / y_true))
 
-wdm = True
-latent = False
+wdm = False
+use_latent = True
 
-print("Performing parameter estimation with WDM =", wdm, "and Latent =", latent)
+print("Performing parameter estimation with WDM =", wdm, "and Latent =", use_latent)
 
 if wdm:
-    if latent:
+    if use_latent:
         cdm_data = data.CAMELS(
             idx_list=range(0, 14000),
             parameters=['Omega_m', 'sigma_8', "A_SN1", "A_SN2", "A_AGN1", "Wdm"],
@@ -77,54 +77,63 @@ else:
         map_type="Mcdm"
     )
 
-# fm = represent.Represent.load_from_checkpoint("reversion_2_126lat/step=step=60600-val_loss=0.232.ckpt")
-# fm.encoder = fm.encoder.cuda()
-# for p in fm.encoder.parameters():
-#     p.requires_grad = False
-# fm.eval()
+fm = represent.Represent.load_from_checkpoint("diti_cfm_mask_spatial_tvec/step=step=21500-val_loss=0.270.ckpt")
+fm.encoder = fm.encoder.cuda()
+for p in fm.encoder.parameters():
+    p.requires_grad = False
+fm.eval()
 
-# train_loader = DataLoader(
-#     cdm_data,
-#     batch_size=126,
-#     shuffle=False,
-#     num_workers=1,
-#     pin_memory=True,
-# )
+train_loader = DataLoader(
+    cdm_data,
+    batch_size=126,
+    shuffle=False,
+    num_workers=1,
+    pin_memory=True,
+)
 
-# test_loader = DataLoader(
-#     val_data,
-#     batch_size=126,
-#     shuffle=False,
-#     num_workers=1,
-#     pin_memory=True,
-# )
+test_loader = DataLoader(
+    val_data,
+    batch_size=126,
+    shuffle=False,
+    num_workers=1,
+    pin_memory=True,
+)
 
-# # Build the encoded dataset using the latent vector output from the encoder
-# encoded_images = []
-# with torch.no_grad():
-#     for images, _ in tqdm.tqdm(train_loader):
-#         images = images.cuda()
-#         if latent:
-#             # Assume encoder returns (spatial_latent, latent_vector)
-#             _, latent_vector = fm.encoder(images)
-#             images = latent_vector
-#         encoded_images.append(images.cpu())
+# Build the encoded dataset using the latent vector output from the encoder
+encoded_images = []
+labels = []
+with torch.no_grad():
+    for images, cosmo in tqdm.tqdm(train_loader):
+        images = images.cuda()
+        if use_latent:
+            # Assume encoder returns (spatial_latent, latent_vector)
+            latent = fm.encoder(images)
+            images = fm.decoder.velocity_model.fc(fm.decoder.velocity_model.pool(latent).squeeze())
+        encoded_images.append(images.cpu())
+        labels.append(cosmo)
 
-# encoded_images = torch.cat(encoded_images, dim=0)
-print(cdm_data.shape, np.array(full_wdm.x).shape)
-train_dataset = TensorDataset(cdm_data, torch.tensor(np.array(full_wdm.x)))
+encoded_images = torch.cat(encoded_images, dim=0)
+labels         = torch.cat(labels, dim=0)
+
+train_dataset = TensorDataset(encoded_images, labels)
 
 
-# encoded_images = []
-# with torch.no_grad():
-#     for images, _ in tqdm.tqdm(test_loader):
-#         images = images.cuda()
-#         if latent:
-#             _, latent_vector = fm.encoder(images)
-#             images = latent_vector
-#         encoded_images.append(images.cpu())
-# encoded_images = torch.cat(encoded_images, dim=0)
-test_dataset = TensorDataset(val_data, torch.tensor(full_val.x))
+encoded_images = []
+labels = []
+with torch.no_grad():
+    for images, cosmo in tqdm.tqdm(test_loader):
+        images = images.cuda()
+        if use_latent:
+            # Assume encoder returns (spatial_latent, latent_vector)
+            latent = fm.encoder(images)
+            images = fm.decoder.velocity_model.fc(fm.decoder.velocity_model.pool(latent).squeeze())
+        encoded_images.append(images.cpu())
+        labels.append(cosmo)
+
+encoded_images = torch.cat(encoded_images, dim=0)
+labels         = torch.cat(labels, dim=0)
+
+test_dataset = TensorDataset(encoded_images, labels)
 
 # Create new data loaders from the latent dataset
 train_loader = DataLoader(train_dataset, batch_size=512, shuffle=True)
@@ -134,7 +143,7 @@ print("Loaded data")
 
 # Set up training: use ParamEstVec for latent vector inference
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-if latent:
+if use_latent:
     model = pe.ParamEstVec(hidden_dim=5, num_hiddens=5, in_dim=126, output_size=(1 if wdm else 2)).to(device)
 else:
     model = pe.ParamEstimatorImg(hidden=5, dr=0.1, channels=1, output_size=(1 if wdm else 2)).to(device)
@@ -150,7 +159,7 @@ def objective(trial):
 
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    if latent:
+    if use_latent:
         model = pe.ParamEstVec(hidden_dim=hidden_dim, num_hiddens=hidden, in_dim=126, output_size=(1 if wdm else 2)).to(device)
     else:
         model = pe.ParamEstimatorImg(hidden=hidden, dr=0.1, channels=1, output_size=(1 if wdm else 2)).to(device)
@@ -198,7 +207,7 @@ best_params = study.best_params
 print("Best hyperparameters:", best_params)
 
 # Train final model using ParamEstVec with chosen hyperparameters
-if latent:
+if use_latent:
     model = pe.ParamEstVec(hidden_dim=best_params['hidden_dim'], num_hiddens=best_params['hidden'], in_dim=126, output_size=(1 if wdm else 2)).to(device)
 else:
     model = pe.ParamEstimatorImg(hidden=5, dr=0.1, channels=1, output_size=(1 if wdm else 2)).to(device)
@@ -236,13 +245,13 @@ for epoch in range(num_epochs):
         
     if val_loss < best_loss:
         best_loss = val_loss
-        torch.save(model.state_dict(), f'pe_params_wdm_{wdm}_latent_{latent}.pt')
+        torch.save(model.state_dict(), f'pe_params_wdm_{wdm}_latent_{use_latent}.pt')
     
     val_loss /= len(test_loader)
     print(f"Epoch {epoch+1}/{num_epochs}, Loss: {running_loss/len(train_loader):.4f}, Val Loss: {val_loss:.4f}")
     scheduler.step()
 
-model.load_state_dict(torch.load(f'pe_params_wdm_{wdm}_latent_{latent}.pt'))
+model.load_state_dict(torch.load(f'pe_params_wdm_{wdm}_latent_{use_latent}.pt'))
 
 # Evaluate model and plot results
 model.eval()
@@ -275,7 +284,7 @@ for i, param_name in enumerate(plot_labels):
             )
             outputs = model(images)
             l1_loss_param += (torch.mean(torch.abs((outputs[:, i] - labels[:, i]) / labels[:, i]))).item()
-        print(f"Average Relative Error for WDM {wdm} with Latent {latent}, for {param_name}: {l1_loss_param/len(test_loader)}")
+        print(f"Average Relative Error for WDM {wdm} with Latent {use_latent}, for {param_name}: {l1_loss_param/len(test_loader)}")
     
     if wdm:
         x = true_params
@@ -314,4 +323,4 @@ for i, param_name in enumerate(plot_labels):
     plt.legend()
 
 plt.tight_layout()
-plt.savefig(f"cosmo_compression/results/param_est_wdm_{wdm}_latent_{latent}.png")
+plt.savefig(f"cosmo_compression/results/param_est_wdm_{wdm}_latent_{use_latent}.png")

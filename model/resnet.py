@@ -63,7 +63,7 @@ class ResnetBlock(nn.Module):
 class ResNet(nn.Module):
     """Residual convolutional network (ResNet 18 architecture)"""
 
-    def __init__(self, in_channels: int, latent_img_channels: int = 32, blur_kernel_size = 1, fc_out_dim: int = 256 * 2):
+    def __init__(self, in_channels: int, latent_img_channels: int = 32, fc_out_dim: int = 256 * 2):
         super(ResNet, self).__init__()
         # CAMELS Multifield Dataset is 256x256
         self.in_layer = nn.Sequential(
@@ -114,15 +114,9 @@ class ResNetEncoder(nn.Module):
         super(ResNetEncoder, self).__init__()
         self.resnet_list = nn.ModuleList(
             [
-                ResNet(in_channels=in_channels, latent_img_channels=latent_img_channels, blur_kernel_size = 1),
-                ResNet(in_channels=in_channels, latent_img_channels=latent_img_channels, blur_kernel_size = 1),
-                ResNet(in_channels=in_channels, latent_img_channels=latent_img_channels, blur_kernel_size = 1),
-                ResNet(in_channels=in_channels, latent_img_channels=latent_img_channels, blur_kernel_size = 1),
+                ResNet(in_channels=in_channels, latent_img_channels=latent_img_channels*4),
             ]
         )
-        
-        self.pool = nn.AdaptiveAvgPool2d((1, 1))
-        self.fc = nn.Linear(latent_img_channels*4, fc_out_dim)
         
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Overloads forward method of nn.Module"""
@@ -132,4 +126,4 @@ class ResNetEncoder(nn.Module):
             spatial_list.append(spatial)
         
         spatial_latent = torch.cat(spatial_list, dim=1)
-        return spatial_latent, self.fc(self.pool(spatial_latent).squeeze())
+        return spatial_latent
