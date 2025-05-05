@@ -21,7 +21,7 @@ import lzma
 from cosmo_compression.data import data
 from cosmo_compression.model import represent
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "3"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 device: str = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -45,14 +45,16 @@ mean = data.NORM_DICT["Mcdm"][256]["mean"]
 std = data.NORM_DICT["Mcdm"][256]["std"]
 
 # Load models
-fm = represent.Represent.load_from_checkpoint("/monolith/global_data/astro_compression/train_compression_model/lossless_latent_full_training/last.ckpt").to(device)
+# ckpt_path = "/monolith/global_data/astro_compression/train_compression_model/lossless_latent_full_training/last.ckpt"
+ckpt_path = "/monolith/global_data/astro_compression/train_compression_model/lmb_0.0001_full/step=step=6900-val_total_loss=0.330.ckpt"
+fm = represent.Represent.load_from_checkpoint(ckpt_path).to(device)
 fm.eval()
 
 img, cosmo = dataset[0]
 img = torch.tensor(img).unsqueeze(0).cuda()
 
 
-n_sampling_steps = 100
+n_sampling_steps = 30
 t = torch.linspace(0, 1, n_sampling_steps).cuda()
         
 h = fm.encoder(img)
@@ -93,9 +95,9 @@ k_orig = Pk2D.k
 Pk_orig = Pk2D.Pk
 
 # pred = pred.detach().cpu().numpy()[0,0,:,:]*std+mean
-
+print(pred.dtype)
 pred = (pred).cpu().numpy()[0, 0, :, :] * std + mean
-delta_fields_pred_1 = pred / np.mean(y) - 1
+delta_fields_pred_1 = pred / np.mean(pred) - 1
 Pk2D = PKL.Pk_plane(delta_fields_pred_1, 25.0, "None", 1, verbose=False)
 k_pred = Pk2D.k
 Pk_pred = Pk2D.Pk
@@ -137,6 +139,17 @@ plt.colorbar(img3, ax=ax4, label="Difference")
 
 # Adjust layout
 plt.tight_layout()
+
+
+# compute image MSE
+field_MSE = np.mean((y - pred) ** 2)
+# compute spectrum MSE
+spectrum_MSE = np.mean((Pk_orig - Pk_pred) ** 2)
+log_spectrum_MSE = np.mean((np.log10(Pk_orig) - np.log10(Pk_pred)) ** 2)
+
+print(f"field_MSE: {field_MSE:.3f}")
+print(f"spectrum_MSE: {spectrum_MSE:.3f}")
+print(f"log_spectrum_MSE: {log_spectrum_MSE:.3f}")
 
 # Create the animation
 # anim = FuncAnimation(fig, update_plot, frames=len(pred), blit=True)
