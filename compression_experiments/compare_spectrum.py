@@ -1,23 +1,14 @@
 import os
 import torch
-from PIL import Image
-from torchvision import transforms
-import pandas as pd
-from tqdm import tqdm
-import json
-import argparse
 from compressai.zoo import image_models
 from compressai.utils.eval_model import __main__ as cai_eval
 from compressai.datasets.ndarray import NdArrayDataset
-from collections import defaultdict
-from timm.utils import AverageMeter
 import numpy as np
-import matplotlib.pyplot 
 from pathlib import Path
 import Pk_library as PKL
-import pickle
 import matplotlib.pyplot as plt
 from torch.utils import data as torchdata
+import matplotlib as mpl
 
 from cosmo_compression.model import represent
 from cosmo_compression.data import data
@@ -26,7 +17,8 @@ from compressai.zoo import image_models
 from compressai.utils.eval_model import __main__ as cai_eval
 from compressai.datasets.ndarray import NdArrayDataset
 
-
+mpl.style.use('seaborn-v0_8-colorblind')
+plt.rcParams["font.family"] = "serif"
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "5"
 # load dataset
@@ -42,17 +34,6 @@ test_dataset_fm: torchdata.Dataset = data.CAMELS(
     dataset="LH",
     parameters=["Omega_m", "sigma_8", "A_SN1", "A_SN2", "A_AGN1", "A_AGN2", "Omega_b"],
 )
-
-# index = 0
-# np_data = test_dataset_hp[index,:,:,:]
-# dataset_accessed, _ = test_dataset_fm[index]
-# fig, axes = plt.subplots(1, 2, figsize=(8,3))
-
-# axes[0].imshow(np_data[0,:,:])
-# axes[1].imshow(dataset_accessed[0,:,:]) 
-# plt.savefig("cosmo_compression/compression_experiments/debug_data.png")
-
-# quit()
 
 
 # load hp model
@@ -189,26 +170,34 @@ fm_results = get_single_image_stats('fm', fm, input_array_fm, output_array_fm)
 fig, axes = plt.subplots(1, 4, figsize=(12,3))
 
 axes[0].imshow(hp_results["input_denorm"][0,:,:])
-axes[0].set_title("Original Field")
-axes[0].set_xlabel("32 bpp")
+axes[0].set_title("Original Density Field")
+axes[0].set_xlabel("32 bits per pixel", labelpad=20)
+axes[0].set_xticks([])
+axes[0].set_yticks([])
 
 axes[1].imshow(hp_results["output_denorm"][0,:,:])
-axes[1].set_title("VAE Rec. Field")
-axes[1].set_xlabel(f"{hp_results['compress_bpp']:.2f} bpp")
+axes[1].set_title("After VAE Compression")
+axes[1].set_xlabel(f"{hp_results['compress_bpp']:.2f} bits per pixel", labelpad=20)
+axes[1].set_xticks([])
+axes[1].set_yticks([])
 
 axes[2].imshow(fm_results["output_denorm"][0,:,:])
-axes[2].set_title("Flow Matching Rec. Field")
-axes[2].set_xlabel(f"{fm_results['compress_bpp']:.2f} bpp")
+axes[2].set_title("After Flow Matching Compression")
+axes[2].set_xlabel(f"{fm_results['compress_bpp']:.2f} bits per pixel", labelpad=20)
+axes[2].set_xticks([])
+axes[2].set_yticks([])
 
-axes[3].plot(hp_results["k_orig"], hp_results["Pk_orig"], label = "Original")
-axes[3].plot(hp_results["k_pred"], hp_results["Pk_pred"], label = "VAE")
-axes[3].plot(fm_results["k_pred"], fm_results["Pk_pred"], label = "FM")
+axes[3].plot(hp_results["k_orig"][:-2], hp_results["Pk_orig"][:-2], label = "Original")
+axes[3].plot(hp_results["k_pred"][:-2], hp_results["Pk_pred"][:-2], label = "VAE")
+axes[3].plot(fm_results["k_pred"][:-2], fm_results["Pk_pred"][:-2], label = "Flow Matching")
 
 axes[3].set_xscale("log")
 axes[3].set_yscale("log")
 axes[3].set_title("Power Spectra")
 axes[3].set_xlabel("Wavenumber $k\,[h/Mpc]$")
 axes[3].set_ylabel("$P(k)\,[(Mpc/h)^2]$")
-axes[3].legend()
+axes[3].legend(fontsize=8)
 
-plt.savefig("cosmo_compression/compression_experiments/comparison.png")
+plt.tight_layout()
+
+plt.savefig("cosmo_compression/compression_experiments/comparison.png", dpi=300)
