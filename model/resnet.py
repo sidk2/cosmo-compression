@@ -114,7 +114,7 @@ class ResNetEncoder(nn.Module):
         super(ResNetEncoder, self).__init__()
         self.resnet_list = nn.ModuleList(
             [
-                ResNet(in_channels=in_channels, latent_img_channels=latent_img_channels*4),
+                ResNet(in_channels=in_channels, latent_img_channels=latent_img_channels),
             ]
         )
         

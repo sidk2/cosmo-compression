@@ -1,6 +1,6 @@
 import os
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3,4,5"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2"
 os.environ["HF_HOME"] = "../../../monolith/global_data/astro_compression/"
 
 from pathlib import Path
@@ -153,10 +153,9 @@ def train(args):
 
     fm = represent.Represent(
         log_wandb=args.use_wandb,
-        unconditional=args.unconditional,
-        latent_img_channels=16,
+        latent_img_channels=64,
     )
-    fm.apply(init_weights)
+    # fm.apply(init_weights)
     fm.train()
 
     trainer = Trainer(

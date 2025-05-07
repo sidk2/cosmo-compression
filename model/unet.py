@@ -581,7 +581,7 @@ class UNet(nn.Module):
         num_mask_channels = (seg_size_spatial * t).floor().int()
         
         # For each sample in the batch, compute the mask per segment
-
+        
         for seg in range(num_segments_spatial):
             start = seg * seg_size_spatial
             end = (seg + 1) * seg_size_spatial
@@ -594,11 +594,11 @@ class UNet(nn.Module):
                 # Copy masked part
                 if num_mask_channels > 0:
                     spatial[b, start + unmasked:end, :, :] = 0  # mask
-                
+        
                 
         # --- End of masking ---
         
-        repr = self.fc(self.pool(spatial).squeeze())
+        repr = self.fc(self.pool(spatial).squeeze()).unsqueeze(0)
         
         t = self.pos_encoding(t, self.time_dim)
 

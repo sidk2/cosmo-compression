@@ -18,7 +18,7 @@ from cosmo_compression.model import represent
 
 torch.manual_seed(42)
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "5"
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 
 MAP_TYPE = "Mcdm"
 MAP_RESOLUTION = 256
@@ -42,7 +42,7 @@ loader = torchdata.DataLoader(
     pin_memory=True,
 )
 
-fm = represent.Represent.load_from_checkpoint("diti_cfm_mask_spatial_tvec/step=step=21500-val_loss=0.270.ckpt").cuda()
+fm = represent.Represent.load_from_checkpoint("diti_cfm_mask_1enc_no_hier_64lc/step=step=17100-val_loss=0.312.ckpt").cuda()
 fm.eval()
 
 gts = []
@@ -87,25 +87,25 @@ target_img = gts[-1][2]
 h_linear = []
 # Define latent interpolation ranges and labels
 modulation_ranges = {
-    f"Stage 0" : list(range(15, 64, 16)),
-    f"Stage 1" : list(range(14, 64, 16)),
-    f"Stage 2" : list(range(13, 64, 16)),
-    f"Stage 3" : list(range(12, 64, 16)),
-    f"Stage 4" : list(range(11, 64, 16)),
-    f"Stage 5" : list(range(10, 64, 16)),
-    f"Stage 6" : list(range(9, 64, 16)),
-    f"Stage 7" : list(range(8, 64, 16)),
-    f"Stage 8" : list(range(7, 64, 16)),
-    f"Stage 9" : list(range(6, 64, 16)),
-    f"Stage 10" : list(range(5, 64, 16)),
-    f"Stage 11" : list(range(4, 64, 16)),
-    f"Stage 12" : list(range(3, 64, 16)),
-    f"Stage 13" : list(range(2, 64, 16)),
-    f"Stage 14" : list(range(1, 64, 16)),
-    f"Stage 15" : list(range(0, 64, 16)),
+    "Stage 0" : list(range(0, 64, 16)),
+    "Stage 1" : list(range(1, 64, 16)),
+    "Stage 2" : list(range(2, 64, 16)),
+    "Stage 3" : list(range(3, 64, 16)),
+    "Stage 4" : list(range(4, 64, 16)),
+    "Stage 5" : list(range(5, 64, 16)),
+    "Stage 6" : list(range(6, 64, 16)),
+    "Stage 7" : list(range(7, 64, 16)),
+    "Stage 8" : list(range(8, 64, 16)),
+    "Stage 9" : list(range(9, 64, 16)),
+    "Stage 10" : list(range(10, 64, 16)),
+    "Stage 11" : list(range(11, 64, 16)),
+    "Stage 12" : list(range(12, 64, 16)),
+    "Stage 13" : list(range(13, 64, 16)),
+    "Stage 14" : list(range(14, 64, 16)),
+    "Stage 15" : list(range(15, 64, 16)),
 }
 
-num_samples_per_stage = 10
+num_samples_per_stage = 5
 all_interpolations = []
 labels = []
 
@@ -120,7 +120,6 @@ for stage, (label, specified_channels) in enumerate(modulation_ranges.items()):
             (1 - t) * starting_img[:, specified_channels]
             + t * target_img[:, specified_channels]
         )
-        
         
         # Combine the latent vector (unchanged) with the interpolated image
         all_interpolations.append(interpolated_image)
