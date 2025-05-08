@@ -18,7 +18,7 @@ from cosmo_compression.model import represent
 
 torch.manual_seed(42)
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "3"
+os.environ["CUDA_VISIBLE_DEVICES"] = "4"
 
 MAP_TYPE = "Mcdm"
 MAP_RESOLUTION = 256
@@ -42,7 +42,7 @@ loader = torchdata.DataLoader(
     pin_memory=True,
 )
 
-fm = represent.Represent.load_from_checkpoint("diti_cfm_mask_1enc_no_hier_64lc/step=step=17100-val_loss=0.312.ckpt").cuda()
+fm = represent.Represent.load_from_checkpoint("diti_detached_16ch_1enc/step=step=6000-val_loss=0.359.ckpt").cuda()
 fm.eval()
 
 gts = []
@@ -87,25 +87,13 @@ target_img = gts[-1][2]
 h_linear = []
 # Define latent interpolation ranges and labels
 modulation_ranges = {
-    "Stage 0" : list(range(0, 64, 16)),
-    "Stage 1" : list(range(1, 64, 16)),
-    "Stage 2" : list(range(2, 64, 16)),
-    "Stage 3" : list(range(3, 64, 16)),
-    "Stage 4" : list(range(4, 64, 16)),
-    "Stage 5" : list(range(5, 64, 16)),
-    "Stage 6" : list(range(6, 64, 16)),
-    "Stage 7" : list(range(7, 64, 16)),
-    "Stage 8" : list(range(8, 64, 16)),
-    "Stage 9" : list(range(9, 64, 16)),
-    "Stage 10" : list(range(10, 64, 16)),
-    "Stage 11" : list(range(11, 64, 16)),
-    "Stage 12" : list(range(12, 64, 16)),
-    "Stage 13" : list(range(13, 64, 16)),
-    "Stage 14" : list(range(14, 64, 16)),
-    "Stage 15" : list(range(15, 64, 16)),
+    "Stage 0" : list(range(0, 4)),
+    "Stage 1" : list(range(4, 8)),
+    "Stage 2" : list(range(8, 12)),
+    "Stage 3" : list(range(12, 16)),
 }
 
-num_samples_per_stage = 5
+num_samples_per_stage = 10
 all_interpolations = []
 labels = []
 
@@ -127,24 +115,6 @@ for stage, (label, specified_channels) in enumerate(modulation_ranges.items()):
 
     # Update current latent and image to the end of this stage
     current_image = interpolated_image.clone()
-    
-for label, specified_channels in reversed(modulation_ranges.items()):
-    # Perform interpolation for the specified channels
-    for i in range(num_samples_per_stage):
-        t = i / (num_samples_per_stage - 1)  # Interpolation factor
-        interpolated_image = current_image.clone()  # Clone the current image
-        interpolated_image[:, specified_channels] = (
-            (1 - t) * target_img[:, specified_channels]
-            + t * starting_img[:, specified_channels]
-        )
-        
-        
-        # Combine the latent vector (unchanged) with the interpolated image
-        all_interpolations.append(interpolated_image)
-        labels.append("Reversed: " + label)
-
-    # Update current latent and image to the end of this stage
-    current_image = interpolated_image.clone()
 
 # Generate multiple x0s and use the same set for all steps
 num_samples = 1
@@ -158,6 +128,7 @@ for i, latent_interpolation in tqdm.tqdm(enumerate(all_interpolations)):
 
     for x0 in x0_samples:
         pred = fm.decoder.predict(x0.cuda(), h=latent_interpolation, n_sampling_steps=n_sampling_steps)
+
         preds.append(pred.cpu().numpy()[0, 0, :, :])
         
         # Compute power spectrum for this sample
@@ -172,7 +143,7 @@ for i, latent_interpolation in tqdm.tqdm(enumerate(all_interpolations)):
     # Use the first sample for visualization
     images_interpolations.append(preds[0] * std + mean)
 
-def create_combined_animation_with_pauses(Pk_data, images, labels, filename, pause_frames=10):
+def create_combined_animation_with_pauses(Pk_data, images, labels, filename, pause_frames=5):
     fig, axs = plt.subplots(2, 2, figsize=(12, 12))
 
     global_vmin = min(np.min(img) for img in images)

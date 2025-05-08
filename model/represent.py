@@ -155,15 +155,28 @@ class Represent(LightningModule):
         log=True,
     ) -> None:
         y, cosmo = batch
+        y = y[0, :, :, :].unsqueeze(0)
         h = self.encoder(y)
-        x0 = torch.randn_like(y)
-        pred = self.decoder.predict(
-            x0,
-            h=h,
-            n_sampling_steps=30,
-        )
+       
         if log:
-            print("Logging")
+            
+            fig, ax = plt.subplots(4, 4, figsize=(8, 8))
+            
+            for ch in range(self.latent_img_channels):
+                ax[ch // 4,  ch - 4 * (ch // 4)].imshow(h[0, ch, : , :].detach().unsqueeze(-1).cpu().numpy())
+                ax[ch // 4,  ch - 4 * (ch // 4)].set_title(f"Channel {ch+1}")
+                ax[ch // 4,  ch - 4 * (ch // 4)].axis("off")
+            plt.savefig("cosmo_compression/results/latents.png")
+            log_matplotlib_figure("latents")
+            plt.close()
+            
+            x0 = torch.randn_like(y)
+            pred = self.decoder.predict(
+                x0,
+                h=h,
+                n_sampling_steps=30,
+            )
+            
             # plot field reconstruction
             fig, ax = plt.subplots(1, 2, figsize=(12, 4))
             ax[0].imshow(y[0, :, : , :].detach().cpu().permute(1, 2, 0).numpy())
@@ -172,19 +185,6 @@ class Represent(LightningModule):
             ax[1].set_title("Reconstructed x")
             plt.savefig("cosmo_compression/results/field_reconstruction.png")
             log_matplotlib_figure("field_reconstruction")
-            plt.close()
-            
-            fig, ax = plt.subplots(2, 2, figsize=(8, 8))
-            ax[0, 0].imshow(h[0, 0, : , :].detach().unsqueeze(-1).cpu().numpy())
-            ax[0, 1].imshow(h[0, 1, : , :].detach().unsqueeze(-1).cpu().numpy())
-            ax[1, 0].imshow(h[0, 2, : , :].detach().unsqueeze(-1).cpu().numpy())
-            ax[1, 1].imshow(h[0, 3, : , :].detach().unsqueeze(-1).cpu().numpy())
-            ax[0, 0].set_title("Encoder 1")
-            ax[0, 1].set_title("Encoder 2")
-            ax[1, 0].set_title("Encoder 3")
-            ax[1, 1].set_title("Encoder 4")
-            plt.savefig("cosmo_compression/results/latents.png")
-            log_matplotlib_figure("latents")
             plt.close()
 
     def configure_optimizers(self) -> Dict[str, Any]:
