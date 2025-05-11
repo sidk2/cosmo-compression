@@ -534,11 +534,15 @@ class UNet(nn.Module):
         t is the full timestep embedding, with dimension time_dim
         z is the full latent, which will be split into latent_dim chunks
         """
-        t = t.unsqueeze(-1)
+
         spatial = z  # [B, C, H, W]
         B, C, H, W = spatial.shape
         num_segments_spatial = 1
         seg_size_spatial = C // num_segments_spatial
+        
+        t = t.unsqueeze(-1)
+        if t.shape[0] != B:
+            t = t.expand(B, t.shape[0])
 
         for seg in range(num_segments_spatial):
             start = seg * seg_size_spatial
@@ -552,9 +556,7 @@ class UNet(nn.Module):
                 if num_mask_channels > 0:
                     # index of the *last* unmasked channel within [start:end)
                     last_idx = start + (unmasked - 1)
-
                     spatial[b : b+1, last_idx+1:, :, :] = 0    
-                    spatial[b : b+1, :last_idx, :, :] = 0 
                 
         # --- End of masking ---
 

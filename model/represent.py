@@ -160,12 +160,12 @@ class Represent(LightningModule):
        
         if log:
             
-            fig, ax = plt.subplots(4, 4, figsize=(8, 8))
+            fig, ax = plt.subplots(8, 8, figsize=(16, 16))
             
             for ch in range(self.latent_img_channels):
-                ax[ch // 4,  ch - 4 * (ch // 4)].imshow(h[0, ch, : , :].detach().unsqueeze(-1).cpu().numpy())
-                ax[ch // 4,  ch - 4 * (ch // 4)].set_title(f"Channel {ch+1}")
-                ax[ch // 4,  ch - 4 * (ch // 4)].axis("off")
+                ax[ch // 8,  ch - 8 * (ch // 8)].imshow(h[0, ch, : , :].detach().unsqueeze(-1).cpu().numpy())
+                ax[ch // 8,  ch - 8 * (ch // 8)].set_title(f"Channel {ch+1}")
+                ax[ch // 8,  ch - 8 * (ch // 8)].axis("off")
             plt.savefig("cosmo_compression/results/latents.png")
             log_matplotlib_figure("latents")
             plt.close()

@@ -153,7 +153,7 @@ def train(args):
 
     fm = represent.Represent(
         log_wandb=args.use_wandb,
-        latent_img_channels=16,
+        latent_img_channels=64,
     )
     # fm.apply(init_weights)
     fm.train()
