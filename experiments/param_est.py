@@ -1,326 +1,255 @@
 import os
+import argparse
+
+os.environ["CUDA_VISIBLE_DEVICES"] = "5"
+
+import matplotlib.pyplot as plt
 import numpy as np
+import optuna
+from scipy import stats as scistats
 import torch
-import tqdm
-from cosmo_compression.data import data
-from cosmo_compression.model import represent
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
-import matplotlib.pyplot as plt
-
-from scipy import stats as scistats
-
-
-from cosmo_compression.downstream import param_est_model as pe
-import optuna
-
 from torchvision import transforms as T
+import tqdm
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "5"
+from cosmo_compression.data import data
+from cosmo_compression.downstream import param_est_model as pe
+from cosmo_compression.model import represent
 
 def pct_error_loss(y_pred, y_true):
     return torch.mean(torch.abs((y_true - y_pred) / y_true))
 
-wdm = False
-use_latent = True
 
-print("Performing parameter estimation with WDM =", wdm, "and Latent =", use_latent)
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Parameter estimation from latent representations"
+    )
+    parser.add_argument(
+        '--model-checkpoint', '-m',
+        type=str, required=True,
+        help='Path to the pretrained representer checkpoint (.ckpt)'
+    )
+    parser.add_argument(
+        '--output-dir', '-o',
+        type=str, required=True,
+        help='Directory to save results and trained models'
+    )
+    parser.add_argument(
+        '--fig-dir', '-f',
+        type=str,
+        default=None,
+        help='Directory to save evaluation figures (default: <output-dir>/figures)'
+    )
+    parser.add_argument(
+        '--wdm', action='store_true',
+        help='Use WDM dataset instead of CDM'
+    )
+    parser.add_argument(
+        '--no-latent', action='store_true',
+        help='Disable latent encoding, use direct image features'
+    )
+    return parser.parse_args()
 
-if wdm:
-    if use_latent:
-        cdm_data = data.CAMELS(
-            idx_list=range(0, 14000),
-            parameters=['Omega_m', 'sigma_8', "A_SN1", "A_SN2", "A_AGN1", "Wdm"],
-            suite="IllustrisTNG",
-            dataset="WDM" if wdm else "LH",
-            map_type="Mcdm"
-        )
-        val_data = data.CAMELS(
-            idx_list=range(14000, 15000),
-            parameters=['Omega_m', 'sigma_8', "A_SN1", "A_SN2", "A_AGN1", "Wdm"],
-            suite="IllustrisTNG",
-            dataset="WDM" if wdm else "LH",
-            map_type="Mcdm"
-        )
-    else:
-        cdm_data = np.load("../../../monolith/global_data/astro_compression/CAMELS/images/wdm_latents.npy")[:14000]
-        val_data = np.load("../../../monolith/global_data/astro_compression/CAMELS/images/wdm_latents.npy")[14000:]
-        full_wdm = data.CAMELS(
-            idx_list=range(0, 14000),
-            parameters=['Omega_m', 'sigma_8', "A_SN1", "A_SN2", "A_AGN1", "Wdm"],
-            suite="IllustrisTNG",
-            dataset="WDM" if wdm else "LH",
-            map_type="Mcdm"
-        )
-        full_val = data.CAMELS(
-            idx_list=range(14000, 15000),
-            parameters=['Omega_m', 'sigma_8', "A_SN1", "A_SN2", "A_AGN1", "Wdm"],
-            suite="IllustrisTNG",
-            dataset="WDM" if wdm else "LH",
-            map_type="Mcdm"
-        )
-        
-else:
-    cdm_data = data.CAMELS(
-        idx_list=range(0, 14600),
-        parameters=['Omega_m', 'sigma_8', 'A_SN1', 'A_SN2', 'A_AGN1', 'A_AGN2'],
+
+def main():
+    args = parse_args()
+    wdm = args.wdm
+    use_latent = not args.no_latent
+
+    # Prepare directories
+    os.makedirs(args.output_dir, exist_ok=True)
+    fig_dir = args.fig_dir or os.path.join(args.output_dir, 'figures')
+    os.makedirs(fig_dir, exist_ok=True)
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    os.environ["CUDA_VISIBLE_DEVICES"] = os.environ.get("CUDA_VISIBLE_DEVICES", "0")
+
+    print(f"Performing parameter estimation with WDM={wdm}, Latent={use_latent}")
+
+    # Data loading
+    param_list = ['Omega_m', 'sigma_8', 'A_SN1', 'A_SN2', 'A_AGN1', 'A_AGN2']
+    if wdm:
+        param_list = ['Omega_m', 'sigma_8', 'A_SN1', 'A_SN2', 'A_AGN1', 'Wdm']
+
+    train_idx = range(0, 14000) if wdm else range(0, 14600)
+    val_idx   = range(train_idx.stop, train_idx.stop +  (1000 if wdm else 400))
+
+    train_data = data.CAMELS(
+        idx_list=train_idx,
+        parameters=param_list,
         suite="IllustrisTNG",
         dataset="WDM" if wdm else "LH",
         map_type="Mcdm"
     )
     val_data = data.CAMELS(
-        idx_list=range(14600, 15000),
-        parameters=['Omega_m', 'sigma_8', 'A_SN1', 'A_SN2', 'A_AGN1', 'A_AGN2'],
+        idx_list=val_idx,
+        parameters=param_list,
         suite="IllustrisTNG",
         dataset="WDM" if wdm else "LH",
         map_type="Mcdm"
     )
 
-fm = represent.Represent.load_from_checkpoint("diti_cfm_mask_spatial_tvec/step=step=21500-val_loss=0.270.ckpt")
-fm.encoder = fm.encoder.cuda()
-for p in fm.encoder.parameters():
-    p.requires_grad = False
-fm.eval()
+    # Load representer
+    fm = represent.Represent.load_from_checkpoint(args.model_checkpoint)
+    fm.encoder = fm.encoder.to(device)
+    for p in fm.encoder.parameters(): p.requires_grad = False
+    fm.eval()
 
-train_loader = DataLoader(
-    cdm_data,
-    batch_size=126,
-    shuffle=False,
-    num_workers=1,
-    pin_memory=True,
-)
-
-test_loader = DataLoader(
-    val_data,
-    batch_size=126,
-    shuffle=False,
-    num_workers=1,
-    pin_memory=True,
-)
-
-# Build the encoded dataset using the latent vector output from the encoder
-encoded_images = []
-labels = []
-with torch.no_grad():
-    for images, cosmo in tqdm.tqdm(train_loader):
-        images = images.cuda()
-        if use_latent:
-            # Assume encoder returns (spatial_latent, latent_vector)
-            latent = fm.encoder(images)
-            images = fm.decoder.velocity_model.fc(fm.decoder.velocity_model.pool(latent).squeeze())
-        encoded_images.append(images.cpu())
-        labels.append(cosmo)
-
-encoded_images = torch.cat(encoded_images, dim=0)
-labels         = torch.cat(labels, dim=0)
-
-train_dataset = TensorDataset(encoded_images, labels)
-
-
-encoded_images = []
-labels = []
-with torch.no_grad():
-    for images, cosmo in tqdm.tqdm(test_loader):
-        images = images.cuda()
-        if use_latent:
-            # Assume encoder returns (spatial_latent, latent_vector)
-            latent = fm.encoder(images)
-            images = fm.decoder.velocity_model.fc(fm.decoder.velocity_model.pool(latent).squeeze())
-        encoded_images.append(images.cpu())
-        labels.append(cosmo)
-
-encoded_images = torch.cat(encoded_images, dim=0)
-labels         = torch.cat(labels, dim=0)
-
-test_dataset = TensorDataset(encoded_images, labels)
-
-# Create new data loaders from the latent dataset
-train_loader = DataLoader(train_dataset, batch_size=512, shuffle=True)
-test_loader = DataLoader(test_dataset, batch_size=512, shuffle=False)
-
-print("Loaded data")
-
-# Set up training: use ParamEstVec for latent vector inference
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-if use_latent:
-    model = pe.ParamEstVec(hidden_dim=5, num_hiddens=5, in_dim=126, output_size=(1 if wdm else 2)).to(device)
-else:
-    model = pe.ParamEstimatorImg(hidden=5, dr=0.1, channels=1, output_size=(1 if wdm else 2)).to(device)
-
-criterion = nn.MSELoss()
-
-def objective(trial):
-    # Hyperparameter search space
-    lr = trial.suggest_loguniform('lr', 1e-6, 1e-1)
-    weight_decay = trial.suggest_loguniform('weight_decay', 1e-8, 1e-4)
-    hidden_dim = trial.suggest_int('hidden_dim', 1, 2048)
-    hidden = trial.suggest_int('hidden', 1, 5)
-
-    
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    if use_latent:
-        model = pe.ParamEstVec(hidden_dim=hidden_dim, num_hiddens=hidden, in_dim=126, output_size=(1 if wdm else 2)).to(device)
-    else:
-        model = pe.ParamEstimatorImg(hidden=hidden, dr=0.1, channels=1, output_size=(1 if wdm else 2)).to(device)
-    
-    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
-    
-    num_epochs = 100  # Reduced epochs for faster Optuna trials
-    best_val_loss = float('inf')
-    
-    for epoch in range(num_epochs):
-        model.train()
-        for images, labels in train_loader:
-            images, labels = images.to(device), (
-                labels.to(device)[:, 0:2] if not wdm 
-                else labels.to(device)[:, -1].reshape(labels.shape[0], 1)
-            )
-            optimizer.zero_grad()
-            outputs = model(images)
-            loss = criterion(outputs, labels)
-            loss.backward()
-            optimizer.step()
-        
-        model.eval()
-        val_loss = 0.0
+    # Helper to encode dataset
+    def encode_dataset(dataset):
+        loader = DataLoader(dataset, batch_size=126, shuffle=False, num_workers=1, pin_memory=True)
+        features, labels = [], []
         with torch.no_grad():
-            for images, labels in test_loader:
-                images, labels = images.to(device), (
-                    labels.to(device)[:, 0:2] if not wdm 
-                    else labels.to(device)[:, -1].reshape(labels.shape[0], 1)
-                )
-                outputs = model(images)
-                loss = criterion(outputs, labels)
-                val_loss += loss.item()
+            for imgs, cosmo in tqdm.tqdm(loader):
+                imgs = imgs.to(device)
+                if use_latent:
+                    latent = fm.encoder(imgs)
+                    feats = fm.decoder.velocity_model.fc(
+                        fm.decoder.velocity_model.pool(latent).squeeze()
+                    )
+                else:
+                    feats = imgs.view(imgs.size(0), -1)
+                features.append(feats.cpu())
+                labels.append(cosmo[:,:2])
+        return torch.cat(features), torch.cat(labels)
+
+    x_train, y_train = encode_dataset(train_data)
+    x_val,   y_val   = encode_dataset(val_data)
+
+    train_ds = TensorDataset(x_train, y_train)
+    val_ds   = TensorDataset(x_val, y_val)
+    train_loader = DataLoader(train_ds, batch_size=512, shuffle=True)
+    val_loader   = DataLoader(val_ds, batch_size=512, shuffle=False)
+
+    # Optuna hyperparameter search
+    def objective(trial):
+        lr = trial.suggest_loguniform('lr', 1e-6, 1e-1)
+        wd = trial.suggest_loguniform('weight_decay', 1e-8, 1e-4)
+        hidden_dim = trial.suggest_int('hidden_dim', 1, 2048)
+        hidden = trial.suggest_int('hidden', 1, 5)
+
+        if use_latent:
+            model = pe.ParamEstVec(
+                hidden_dim=hidden_dim,
+                num_hiddens=hidden,
+                in_dim=x_train.shape[1],
+                output_size=(1 if wdm else 2)
+            ).to(device)
+        else:
+            model = pe.ParamEstimatorImg(
+                hidden=hidden,
+                dr=0.1,
+                channels=1,
+                output_size=(1 if wdm else 2)
+            ).to(device)
+        opt = optim.Adam(model.parameters(), lr=lr, weight_decay=wd)
+        loss_fn = nn.MSELoss()
+
+        for _ in range(100):
+            model.train()
+            for xb, yb in train_loader:
+                xb, yb = xb.to(device), yb.to(device)[:, : (1 if wdm else 2)]
+                opt.zero_grad()
+                out = model(xb)
+                l = loss_fn(out, yb)
+                l.backward()
+                opt.step()
+            model.eval()
+            vl = np.mean([loss_fn(model(xb.to(device)), yb.to(device)[:, :(1 if wdm else 2)]).item()
+                          for xb, yb in val_loader])
+        return vl
+
+    study = optuna.create_study(direction='minimize')
+    study.optimize(objective, n_trials=30)
+    best = study.best_params
+    print("Best hyperparameters:", best)
+
+    # Final training
+    if use_latent:
+        model = pe.ParamEstVec(
+            hidden_dim=best['hidden_dim'], num_hiddens=best['hidden'],
+            in_dim=x_train.shape[1], output_size=(1 if wdm else 2)
+        ).to(device)
+    else:
+        model = pe.ParamEstimatorImg(
+            hidden=best['hidden'], dr=0.1, channels=1,
+            output_size=(1 if wdm else 2)
+        ).to(device)
+    opt = optim.Adam(model.parameters(), lr=best['lr'], weight_decay=best['weight_decay'])
+    sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=500, eta_min=1e-7)
+    best_loss = float('inf')
+
+    for epoch in range(500):
+        model.train()
+        run_loss = 0.0
         
-        val_loss /= len(test_loader)
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-    
-    return best_val_loss
+        for xb, yb in train_loader:
+            xb, yb = xb.to(device), yb.to(device)[:, :(1 if wdm else 2)]
+            opt.zero_grad()
+            out = model(xb)
+            l = nn.MSELoss()(out, yb)
+            l.backward()
+            opt.step()
+            run_loss += l.item()
+        
+        val_loss = np.sum([nn.MSELoss()(model(xb.to(device)), yb.to(device)[:, :(1 if wdm else 2)]).item()
+                           for xb, yb in val_loader])
+        val_loss /= len(val_loader)
+        if val_loss < best_loss:
+            best_loss = val_loss
+            torch.save(model.state_dict(), os.path.join(args.output_dir, 'best_model.pt'))
+        print(f"Epoch {epoch+1}: Train {run_loss/len(train_loader):.4f}, Val {val_loss:.4f}")
+        sched.step()
 
-# Uncomment below to run Optuna optimization
-study = optuna.create_study(direction='minimize')
-study.optimize(objective, n_trials=30)
-best_params = study.best_params
-print("Best hyperparameters:", best_params)
-
-# Train final model using ParamEstVec with chosen hyperparameters
-if use_latent:
-    model = pe.ParamEstVec(hidden_dim=best_params['hidden_dim'], num_hiddens=best_params['hidden'], in_dim=126, output_size=(1 if wdm else 2)).to(device)
-else:
-    model = pe.ParamEstimatorImg(hidden=5, dr=0.1, channels=1, output_size=(1 if wdm else 2)).to(device)
-
-final_optimizer = optim.Adam(model.parameters(), lr=best_params['lr'], weight_decay=best_params['weight_decay'])
-scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(final_optimizer, T_max=500, eta_min=1e-7)
-
-best_loss = float('inf')
-num_epochs = 500
-for epoch in range(num_epochs):
-    model.train()
-    running_loss = 0.0
-    for images, labels in train_loader:
-        images, labels = images.to(device), (
-            labels.to(device)[:, 0:2] if not wdm 
-            else 1 / labels.to(device)[:, -1].reshape(labels.shape[0], 1)
-        )
-        final_optimizer.zero_grad()
-        outputs = model(images)
-        loss = criterion(outputs, labels)
-        loss.backward()
-        final_optimizer.step()
-        running_loss += loss.item()
-    
+    # Evaluation & plotting
+    model.load_state_dict(torch.load(os.path.join(args.output_dir, 'best_model.pt')))
     model.eval()
-    val_loss = 0.0
-    for images, labels in test_loader:
-        images, labels = images.to(device), (
-            labels.to(device)[:, 0:2] if not wdm 
-            else 1 / labels.to(device)[:, -1].reshape(labels.shape[0], 1)
-        )
-        outputs = model(images)
-        loss = criterion(outputs, labels)
-        val_loss += loss.item()
-        
-    if val_loss < best_loss:
-        best_loss = val_loss
-        torch.save(model.state_dict(), f'pe_params_wdm_{wdm}_latent_{use_latent}.pt')
-    
-    val_loss /= len(test_loader)
-    print(f"Epoch {epoch+1}/{num_epochs}, Loss: {running_loss/len(train_loader):.4f}, Val Loss: {val_loss:.4f}")
-    scheduler.step()
-
-model.load_state_dict(torch.load(f'pe_params_wdm_{wdm}_latent_{use_latent}.pt'))
-
-# Evaluate model and plot results
-model.eval()
-true_params = []
-pred_params = []
-
-with torch.no_grad():
-    for images, labels in test_loader:
-        images, labels = images.to(device), (
-            labels.to(device)[:, 0:2] if not wdm 
-            else 1 / labels.to(device)[:, -1].reshape(labels.shape[0], 1)
-        )
-        outputs = model(images)
-        true_params.extend(labels.cpu().numpy())
-        pred_params.extend(outputs.cpu().numpy())
-
-true_params = np.array(true_params)
-pred_params = np.array(pred_params)
-
-plt.figure(figsize=(10, 5))
-plot_labels = ['Omega_m', 'sigma_8'] if not wdm else ['WDM']
-
-for i, param_name in enumerate(plot_labels):
-    l1_loss_param = 0
+    true, pred = [], []
     with torch.no_grad():
-        for images, labels in test_loader:
-            images, labels = images.to(device), (
-                labels.to(device)[:, 0:2] if not wdm 
-                else 1 / labels.to(device)[:, -1].reshape(labels.shape[0], 1)
-            )
-            outputs = model(images)
-            l1_loss_param += (torch.mean(torch.abs((outputs[:, i] - labels[:, i]) / labels[:, i]))).item()
-        print(f"Average Relative Error for WDM {wdm} with Latent {use_latent}, for {param_name}: {l1_loss_param/len(test_loader)}")
-    
-    if wdm:
-        x = true_params
-        y = pred_params
-    else:
-        x = true_params[:, i]
-        y = pred_params[:, i]
-        
-    print(x.shape, y.shape)
-        
-    plt.subplot(1, 2, i+1)
-    plt.scatter(x, y, alpha=0.2)
-    
-    print(scistats.pearsonr(true_params[:, i], pred_params[:, i]))
+        for xb, yb in val_loader:
+            xb = xb.to(device)
+            out = model(xb)
+            true.append(yb.numpy())
+            pred.append(out.cpu().numpy())
+    true = np.vstack(true)
+    pred = np.vstack(pred)
 
-    
-    # Compute and plot line of best fit
-    if not wdm:
-        slope, intercept = np.polyfit(x, y, 1)
-        print(param_name, " slope ", slope, "intercept ", intercept)
-        best_fit_line = slope * x + intercept
-        plt.plot(x, best_fit_line, 'b-', label=f'Fit: y={slope:.2f}x')
-    else:
-        slope, intercept = np.polyfit(x, y, 1)
-        best_fit_line = slope * x + intercept
-        plt.plot(x, best_fit_line, 'b-', label=f'Fit: y={slope:.2f}x')
-    
-    min_val, max_val = x.min(), x.max()
-    plt.plot([min_val, max_val], [min_val, max_val], 'r--', label='y=x')
-    plt.xlim(min_val, max_val)
-    plt.ylim(min_val, max_val)
-    
-    plt.xlabel(f"True {param_name}")
-    plt.ylabel(f"Predicted {param_name}")
-    plt.title(f"True vs Predicted {param_name}")
-    plt.legend()
+    plot_labels = ['WDM'] if wdm else ['Omega_m', 'sigma_8']
+    fig, axes = plt.subplots(1, len(plot_labels), figsize=(10, 5))
+    for i, name in enumerate(plot_labels):
+        ax = axes[i] if len(plot_labels)>1 else axes
+        x, y = true[:, i], pred[:, i]
+        ax.scatter(x, y, alpha=0.2)
+        slope, inter = np.polyfit(x, y, 1)
+        ax.plot(x, slope*x + inter, '-', label=f'y={slope:.2f}x')
+        ax.plot([x.min(), x.max()], [x.min(), x.max()], '--', label='y=x')
+        ax.set(
+            xlabel=f'True {name}', ylabel=f'Predicted {name}',
+            title=f'{name} (r={scistats.pearsonr(x, y)[0]:.2f})'
+        )
+        ax.legend()
+    plt.tight_layout()
+    # Save figure to specified fig_dir
+    fig_path = os.path.join(fig_dir, 'param_est_results.png')
+    plt.savefig(fig_path)
+    print(f"Saved evaluation figure at {fig_path}")
 
-plt.tight_layout()
-plt.savefig(f"cosmo_compression/results/param_est_wdm_{wdm}_latent_{use_latent}.png")
+    # Compute and save validation percent relative error
+    # true and pred are numpy arrays
+    rel_err = np.abs((true - pred) / true)
+    # handle zeros in true to avoid division by zero
+    rel_err = np.where(true != 0, rel_err, np.nan)
+    per_param = np.nanmean(rel_err, axis=0)
+    overall = np.nanmean(rel_err)
+    txt_path = os.path.join(fig_dir, 'val_pct_error.txt')
+    with open(txt_path, 'w') as f:
+        f.write("Validation Percent Relative Error\n")
+        for name, err in zip(plot_labels, per_param):
+            f.write(f"{name}: {err:.4f}\n")
+        f.write(f"Overall: {overall:.4f}\n")
+    print(f"Saved validation percent relative error at {txt_path}")
+
+if __name__ == '__main__':
+    main()

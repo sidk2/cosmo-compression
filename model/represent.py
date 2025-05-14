@@ -19,6 +19,7 @@ from cosmo_compression.model import flow_matching as fm
 from cosmo_compression.model import unet
 from cosmo_compression.model import resnet
 
+
 def compute_pk(
     mesh: np.array,
     mesh_2: Optional[np.array] = None,
@@ -91,26 +92,27 @@ class Represent(LightningModule):
         velocity_model = self.initialize_velocity()
         self.decoder = fm.FlowMatching(velocity_model, reverse=reverse)
         self.validation_step_outputs = []
-        
 
     def initialize_velocity(self) -> nn.Module:
         return unet.UNet(
             n_channels=1,
             time_dim=256,
-            latent_img_channels = self.latent_img_channels,
+            latent_img_channels=self.latent_img_channels,
         )
 
     def initialize_encoder(self, in_channels: int) -> nn.Module:
-        return resnet.ResNetEncoder(in_channels=in_channels, latent_img_channels = self.latent_img_channels)
+        return resnet.ResNetEncoder(
+            in_channels=in_channels, latent_img_channels=self.latent_img_channels
+        )
 
     def get_loss(
         self,
         batch: Tuple[torch.Tensor, torch.Tensor],
     ) -> torch.Tensor:
         y, cosmo = batch
-                
+
         # Train representation
-        t = torch.rand((y.shape[0]), device = y.device)
+        t = torch.rand((y.shape[0]), device=y.device)
         h = self.encoder(y) if not self.unconditional else None
         x0 = torch.randn_like(y)
         decoder_loss = self.decoder.compute_loss(
@@ -145,9 +147,9 @@ class Represent(LightningModule):
         batch = self.validation_step_outputs[0]["batch"]
         self._log_figures(batch, log=self.log_wandb)
         self.validation_step_outputs.clear()
-        
+
         self.optimizers().step()
-        
+
     @utilities.rank_zero_only
     def _log_figures(
         self,
@@ -157,30 +159,20 @@ class Represent(LightningModule):
         y, cosmo = batch
         y = y[0, :, :, :].unsqueeze(0)
         h = self.encoder(y)
-       
+
         if log:
-            
-            fig, ax = plt.subplots(8, 8, figsize=(16, 16))
-            
-            for ch in range(self.latent_img_channels):
-                ax[ch // 8,  ch - 8 * (ch // 8)].imshow(h[0, ch, : , :].detach().unsqueeze(-1).cpu().numpy())
-                ax[ch // 8,  ch - 8 * (ch // 8)].set_title(f"Channel {ch+1}")
-                ax[ch // 8,  ch - 8 * (ch // 8)].axis("off")
-            plt.savefig("cosmo_compression/results/latents.png")
-            log_matplotlib_figure("latents")
-            plt.close()
-            
+
             x0 = torch.randn_like(y)
             pred = self.decoder.predict(
                 x0,
                 h=h,
                 n_sampling_steps=30,
             )
-            
+
             # plot field reconstruction
             fig, ax = plt.subplots(1, 2, figsize=(12, 4))
-            ax[0].imshow(y[0, :, : , :].detach().cpu().permute(1, 2, 0).numpy())
-            ax[1].imshow(pred[0, :, : , :].detach().cpu().permute(1, 2, 0).numpy())
+            ax[0].imshow(y[0, :, :, :].detach().cpu().permute(1, 2, 0).numpy())
+            ax[1].imshow(pred[0, :, :, :].detach().cpu().permute(1, 2, 0).numpy())
             ax[0].set_title("x")
             ax[1].set_title("Reconstructed x")
             plt.savefig("cosmo_compression/results/field_reconstruction.png")

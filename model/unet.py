@@ -73,72 +73,6 @@ class SelfAttention(nn.Module):
         x = self.ff_self(x) + x
         return x.swapaxes(2, 1).view(-1, self.channels, size, size)
 
-
-# class SelfAttention(nn.Module):
-#     """Self-attention module using patching strategy to reduce sequence length"""
-
-#     def __init__(self, channels: int, patch_size: int = 2):
-#         """
-#         Args:
-#             channels (int): Number of input channels.
-#             patch_size (int): Size of each patch (patch_size x patch_size).
-#         """
-#         super(SelfAttention, self).__init__()
-#         self.channels = channels
-#         self.patch_size = patch_size
-
-#         # Patching: Embed each non-overlapping patch using a convolution.
-#         # This reduces the spatial dimensions by a factor of patch_size.
-#         self.patch_embed = nn.Conv2d(
-#             channels, channels, kernel_size=patch_size, stride=patch_size
-#         )
-
-#         # Multi-head attention: expects input shape (batch, tokens, channels)
-#         self.mha = nn.MultiheadAttention(channels, num_heads=1, batch_first=True)
-
-#         # Feedforward network with residual connection.
-#         self.ff_self = nn.Sequential(
-#             nn.LayerNorm(channels),
-#             nn.Linear(channels, channels),
-#             nn.GELU(),
-#             nn.Linear(channels, channels),
-#         )
-
-#         # Unpatching: Recover the original spatial resolution using a transposed convolution.
-#         self.patch_unembed = nn.ConvTranspose2d(
-#             channels, channels, kernel_size=patch_size, stride=patch_size
-#         )
-
-#     def forward(self, x: torch.Tensor) -> torch.Tensor:
-#         """
-#         Args:
-#             x (torch.Tensor): Input tensor of shape (batch, channels, height, width).
-#         Returns:
-#             torch.Tensor: Output tensor with the same spatial resolution as the input.
-#         """
-#         # 1. Patchify the input: embed non-overlapping patches.
-#         #    The output shape will be (batch, channels, H_p, W_p) where H_p = height/patch_size.
-#         patches = self.patch_embed(x)
-
-#         # 2. Flatten spatial dimensions to form tokens.
-#         batch, c, H_p, W_p = patches.shape
-#         # Reshape to (batch, tokens, channels)
-#         tokens = patches.view(batch, c, H_p * W_p).transpose(1, 2)
-
-#         # 3. Apply multi-head self-attention.
-#         tokens, _ = self.mha(tokens, tokens, tokens)
-
-#         # 4. Apply the feedforward network with a residual connection.
-#         tokens = tokens + self.ff_self(tokens)
-
-#         # 5. Reshape tokens back to patch grid.
-#         patches = tokens.transpose(1, 2).view(batch, c, H_p, W_p)
-
-#         # 6. Unpatch: Reconstruct the spatial dimensions.
-#         out = self.patch_unembed(patches)
-#         return out
-
-
 def subpel_conv3x3(in_ch: int, out_ch: int, r: int = 1) -> nn.Sequential:
     """3x3 sub-pixel convolution for up-sampling."""
     return nn.Sequential(
@@ -425,52 +359,52 @@ class UNet(nn.Module):
             residual=True,
         )
         self.down1 = DownStep(
-            in_channels=64 + self.num_latent_channels ,
+            in_channels=64 + self.num_latent_channels // 4,
             out_channels=128,
             time_dim=time_dim,
         )
         # self.sa1 = SelfAttention(channels=128)
         self.down2 = DownStep(
-            in_channels=128,
+            in_channels=128 + self.num_latent_channels // 4,
             out_channels=256,
             time_dim=time_dim,
         )
         self.sa2 = SelfAttention(channels=256)
         self.down3 = DownStep(
-            in_channels=256,
+            in_channels=256 + self.num_latent_channels // 4,
             out_channels=512,
             time_dim=time_dim,
         )
         self.sa3 = SelfAttention(channels=512)
         self.down4 = DownStep(
-            in_channels=512,
+            in_channels=512 + self.num_latent_channels // 4,
             out_channels=512,
             time_dim=time_dim,
         )
 
         self.up0 = UpStep(
             in_channels=512,
-            res_channels=512 ,
+            res_channels=512 + self.num_latent_channels // 4,
             out_channels=256,
             time_dim=time_dim,
         )
         self.sa0_inv = SelfAttention(channels=256)
         self.up1 = UpStep(
             in_channels=256,
-            res_channels=256,
+            res_channels=256 + self.num_latent_channels // 4,
             out_channels=256,
             time_dim=time_dim,
         )
         self.sa1_inv = SelfAttention(channels=256)
         self.up2 = UpStep(
             in_channels=256,
-            res_channels=128,
+            res_channels=128 + self.num_latent_channels // 4,
             out_channels=128,
             time_dim=time_dim,
         )
         self.up3 = UpStep(
             in_channels=128,
-            res_channels=64 + self.num_latent_channels ,
+            res_channels=64 + self.num_latent_channels // 4,
             out_channels=64,
             time_dim=time_dim,
         )
@@ -485,31 +419,70 @@ class UNet(nn.Module):
         )
         self.latent_upsampler_0 = nn.Sequential(
             UpStepWoutRes(
-                in_channels=int(self.num_latent_channels),
-                out_channels=int(self.num_latent_channels),
+                in_channels=int(self.num_latent_channels // 4),
+                out_channels=int(self.num_latent_channels // 4),
                 time_dim=time_dim,
             ),
             UpStepWoutRes(
-                in_channels=int(self.num_latent_channels),
-                out_channels=int(self.num_latent_channels),
+                in_channels=int(self.num_latent_channels // 4),
+                out_channels=int(self.num_latent_channels // 4),
                 time_dim=time_dim,
             ),
             UpStepWoutRes(
-                in_channels=int(self.num_latent_channels ),
-                out_channels=int(self.num_latent_channels ),
+                in_channels=int(self.num_latent_channels // 4),
+                out_channels=int(self.num_latent_channels // 4),
                 time_dim=time_dim,
             ),
             UpStepWoutRes(
-                in_channels=int(self.num_latent_channels ),
-                out_channels=int(self.num_latent_channels ),
+                in_channels=int(self.num_latent_channels // 4),
+                out_channels=int(self.num_latent_channels // 4),
+                time_dim=time_dim,
+            ),
+        )
+
+        self.latent_upsampler_1 = nn.Sequential(
+            UpStepWoutRes(
+                in_channels=int(self.num_latent_channels // 4),
+                out_channels=int(self.num_latent_channels // 4),
+                time_dim=time_dim,
+            ),
+            UpStepWoutRes(
+                in_channels=int(self.num_latent_channels // 4),
+                out_channels=int(self.num_latent_channels // 4),
+                time_dim=time_dim,
+            ),
+            UpStepWoutRes(
+                in_channels=int(self.num_latent_channels // 4),
+                out_channels=int(self.num_latent_channels // 4),
+                time_dim=time_dim,
+            ),
+        )
+
+        self.latent_upsampler_2 = nn.Sequential(
+            UpStepWoutRes(
+                in_channels=int(self.num_latent_channels // 4),
+                out_channels=int(self.num_latent_channels // 4),
+                time_dim=time_dim,
+            ),
+            UpStepWoutRes(
+                in_channels=int(self.num_latent_channels // 4),
+                out_channels=int(self.num_latent_channels // 4),
+                time_dim=time_dim,
+            ),
+        )
+
+        self.latent_upsampler_3 = nn.Sequential(
+            UpStepWoutRes(
+                in_channels=int(self.num_latent_channels // 4),
+                out_channels=int(self.num_latent_channels // 4),
                 time_dim=time_dim,
             ),
         )
 
         self.latent_vec_dim = latent_vec_dim
-        
+
         self.pool = nn.AdaptiveAvgPool2d((1, 1))
-        self.fc = nn.Linear(self.num_latent_channels, 14*9)
+        self.fc = nn.Linear(self.num_latent_channels, 14 * 9)
 
     def pos_encoding(self, t: int, channels: int) -> torch.Tensor:
         """Generate sinusoidal timestep embedding"""
@@ -537,16 +510,16 @@ class UNet(nn.Module):
 
         spatial = z  # [B, C, H, W]
         B, C, H, W = spatial.shape
-        num_segments_spatial = 1
+        num_segments_spatial = 4
         seg_size_spatial = C // num_segments_spatial
-        
+
         t = t.unsqueeze(-1)
         if t.shape[0] != B:
             t = t.expand(B, t.shape[0])
 
         for seg in range(num_segments_spatial):
             start = seg * seg_size_spatial
-            end   = (seg + 1) * seg_size_spatial
+            end = (seg + 1) * seg_size_spatial
 
             for b in range(B):
                 t_val = t[b].item()
@@ -556,31 +529,93 @@ class UNet(nn.Module):
                 if num_mask_channels > 0:
                     # index of the *last* unmasked channel within [start:end)
                     last_idx = start + (unmasked - 1)
-                    spatial[b : b+1, last_idx+1:, :, :] = 0    
-                
+                    spatial[b : b + 1, last_idx + 1 :, :, :] = 0
+
         # --- End of masking ---
 
         repr = self.fc(self.pool(spatial).squeeze())
         if repr.dim() == 1:
             repr = repr.unsqueeze(0)
-        
+
         t = self.pos_encoding(t, self.time_dim)
 
         # Downsampling stages
-        x1 = self.inc(x, t, repr[:, 0:self.latent_vec_dim])
-        x1 = torch.cat([self.latent_upsampler_0(spatial[:, 0:self.num_latent_channels, :, :]), x1], dim=1)
-        x2 = self.down1(x1, t, repr[:, self.latent_vec_dim:self.latent_vec_dim*2])
-        x3 = self.down2(x2, t, repr[:, self.latent_vec_dim*2:self.latent_vec_dim*3])
+        x1 = self.inc(x, t, repr[:, 0 : self.latent_vec_dim])
+        x1 = torch.cat(
+            [
+                self.latent_upsampler_0(
+                    spatial[:, 0 : self.num_latent_channels // 4, :, :]
+                ),
+                x1,
+            ],
+            dim=1,
+        )
+        x2 = self.down1(x1, t, repr[:, self.latent_vec_dim : self.latent_vec_dim * 2])
+        x2 = torch.cat(
+            [
+                self.latent_upsampler_1(
+                    spatial[
+                        :,
+                        self.num_latent_channels // 4 : self.num_latent_channels // 2,
+                        :,
+                        :,
+                    ]
+                ),
+                x2,
+            ],
+            dim=1,
+        )
+        x3 = self.down2(
+            x2, t, repr[:, self.latent_vec_dim * 2 : self.latent_vec_dim * 3]
+        )
         x3 = self.sa2(x3)
-        x4 = self.down3(x3, t, repr[:, self.latent_vec_dim*3:self.latent_vec_dim*4])
+        x3 = torch.cat(
+            [
+                self.latent_upsampler_2(
+                    spatial[
+                        :,
+                        self.num_latent_channels
+                        // 2 : 3
+                        * self.num_latent_channels
+                        // 4,
+                        :,
+                        :,
+                    ]
+                ),
+                x3,
+            ],
+            dim=1,
+        )
+        x4 = self.down3(
+            x3, t, repr[:, self.latent_vec_dim * 3 : self.latent_vec_dim * 4]
+        )
         x4 = self.sa3(x4)
-        x5 = self.down4(x4, t, repr[:, self.latent_vec_dim*4:self.latent_vec_dim*5])
+        x4 = torch.cat(
+            [
+                self.latent_upsampler_3(
+                    spatial[:, 3 * self.num_latent_channels // 4 :, :, :]
+                ),
+                x4,
+            ],
+            dim=1,
+        )
+        x5 = self.down4(
+            x4, t, repr[:, self.latent_vec_dim * 4 : self.latent_vec_dim * 5]
+        )
 
         # Upsampling stages
-        x = self.up0(x5, x4, t, repr[:, self.latent_vec_dim*5:self.latent_vec_dim*6])
-        x = self.up1(x, x3, t, repr[:, self.latent_vec_dim*6:self.latent_vec_dim*7])
+        x = self.up0(
+            x5, x4, t, repr[:, self.latent_vec_dim * 5 : self.latent_vec_dim * 6]
+        )
+        x = self.up1(
+            x, x3, t, repr[:, self.latent_vec_dim * 6 : self.latent_vec_dim * 7]
+        )
         x = self.sa1_inv(x)
-        x = self.up2(x, x2, t, repr[:, self.latent_vec_dim*7:self.latent_vec_dim*8])
-        x = self.up3(x, x1, t, repr[:, self.latent_vec_dim*8:self.latent_vec_dim*9])
+        x = self.up2(
+            x, x2, t, repr[:, self.latent_vec_dim * 7 : self.latent_vec_dim * 8]
+        )
+        x = self.up3(
+            x, x1, t, repr[:, self.latent_vec_dim * 8 : self.latent_vec_dim * 9]
+        )
 
         return self.outc(x)

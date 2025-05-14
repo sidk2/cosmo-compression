@@ -18,7 +18,7 @@ from cosmo_compression.model import represent
 
 torch.manual_seed(42)
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "4"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 MAP_TYPE = "Mcdm"
 MAP_RESOLUTION = 256
@@ -42,7 +42,7 @@ loader = torchdata.DataLoader(
     pin_memory=True,
 )
 
-fm = represent.Represent.load_from_checkpoint("diti_64ch_mask/step=step=25700-val_loss=0.255.ckpt").cuda()
+fm = represent.Represent.load_from_checkpoint("latent_ablation_hierarchical_splitting/no_hierarchical_32/step=step=37200-val_loss=0.335.ckpt").cuda()
 fm.eval()
 
 gts = []
@@ -86,22 +86,16 @@ target_img = gts[-1][2]
 h_linear = []
 # Define latent interpolation ranges and labels
 modulation_ranges = {
-    "Stage 0" : list(range(60, 64)),
-    "Stage 1" : list(range(56, 60)),
-    "Stage 2" : list(range(52, 56)),
-    "Stage 3" : list(range(48, 52)),
-    "Stage 4" : list(range(44, 48)),
-    "Stage 5" : list(range(40, 44)),
-    "Stage 6" : list(range(36, 40)),
-    "Stage 7" : list(range(32, 36)),
-    "Stage 8" : list(range(28, 32)),
-    "Stage 9" : list(range(24, 28)),
-    "Stage 10" : list(range(20, 24)),
-    "Stage 11" : list(range(16, 20)),
-    "Stage 12" : list(range(12, 16)),
-    "Stage 13" : list(range(8, 12)),
-    "Stage 14" : list(range(4, 8)),
-    "Stage 15" : list(range(0, 4)),
+    "Stage 0" : list(range(0, 32, 8)),
+    "Stage 1" : list(range(1, 32, 8)),
+    "Stage 2" : list(range(2, 32, 8)),
+    "Stage 3" : list(range(3, 32, 8)),
+    "Stage 4" : list(range(4, 32, 8)),
+    "Stage 5" : list(range(5, 32, 8)),
+    "Stage 6" : list(range(6, 32, 8)),
+    "Stage 7" : list(range(7, 32, 8)),
+    "Stage 8" : list(range(8, 32, 8)),
+    
 }
 
 num_samples_per_stage = 5

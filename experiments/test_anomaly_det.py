@@ -1,199 +1,186 @@
 import os
+import argparse
 import numpy as np
 import torch
 import tqdm
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader, TensorDataset, random_split
+from torch.utils.data import DataLoader, TensorDataset
 import matplotlib.pyplot as plt
-import optuna
 
 from cosmo_compression.data import data
 from cosmo_compression.model import represent
 from cosmo_compression.downstream import anomaly_det_model as ad
 
-torch.manual_seed(90)
+def parse_args():
+    parser = argparse.ArgumentParser(description="Anomaly detection on CAMELS latents or image reconstruction errors")
+    parser.add_argument('-c', '--checkpoint', type=str, required=True,
+                        help='Path to pretrained representer checkpoint (.ckpt)')
+    parser.add_argument('-o', '--output-dir', type=str, required=True,
+                        help='Directory to save outputs (models, metrics, figures)')
+    parser.add_argument('--use-latents', action='store_true',
+                        help='Use latent vectors as features instead of image reconstruction errors')
+    parser.add_argument('--wdm', action='store_true',
+                        help='Include WDM data alongside CDM')
+    parser.add_argument('--batch-size', type=int, default=512)
+    parser.add_argument('--epochs', type=int, default=300)
+    parser.add_argument('--lr', type=float, default=1e-4)
+    parser.add_argument('--weight-decay', type=float, default=1e-5)
+    parser.add_argument('-n', '--n-steps', type=int, default=30,
+                        help='Number of sampling steps for reconstruction')
+    parser.add_argument('-f', '--fig-dir', type=str, default=None,
+                        help='Directory to save figures (default: <output-dir>/figures)')
+    return parser.parse_args()
 
-# Define file paths
-save_dir = "../../../monolith/global_data/astro_compression/CAMELS/images"
-os.makedirs(save_dir, exist_ok=True)
-cdm_latents_path = os.path.join(save_dir, "cdm_latents.npy")
-cdm_params_path = os.path.join(save_dir, "cdm_params.npy")
-wdm_latents_path = os.path.join(save_dir, "wdm_latents.npy")
-wdm_params_path = os.path.join(save_dir, "wdm_params.npy")
 
-use_latents = False
-
-os.environ["CUDA_VISIBLE_DEVICES"] = "5"
-
-
-# Load model
-fm = represent.Represent.load_from_checkpoint("masked_flow_matching/step=step=25100-val_loss=0.263.ckpt")
-fm.encoder = fm.encoder.cuda()
-for p in fm.encoder.parameters():
-    p.requires_grad = False
-fm.eval()
-
-# Set sampling parameters
-n_sampling_steps = 30
-
-# Function to compute latents
-def compute_latents(dataset, is_cdm=True):
-    diff, params = [], []
-    for i, (data, cosmo) in tqdm.tqdm(enumerate(dataset)):
+def compute_latents(fm, dataset, batch_size):
+    latents, params = [], []
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
+    for imgs, cosmo in tqdm.tqdm(loader, desc="Computing latents"):
+        imgs = imgs.cuda()
         with torch.no_grad():
-            data = torch.tensor(data).unsqueeze(0).cuda()
-            spatial, vec = fm.encoder(data)
-            latent = spatial, vec.unsqueeze(0)
-            # out = fm.decoder.predict(x0=torch.randn_like(data), h=latent, n_sampling_steps=n_sampling_steps)
-            params.append(cosmo)
-            diff.append(latent[1].cpu().numpy())
-            # diff.append((data - out).cpu().numpy()[0, 0, :, :])
-            
-    return np.array(diff), np.array(params)
+            spatial = fm.encoder(imgs)
+            vec = fm.decoder.velocity_model.fc(fm.decoder.velocity_model.pool(spatial).squeeze())
+        latents.append(vec.cpu().numpy())
+        params.append(cosmo.numpy())
+    return np.vstack(latents), np.vstack(params)
 
-cdm_data = data.CAMELS(idx_list=range(15000), parameters=['Omega_m', 'sigma_8', "A_SN1", "A_SN2", "A_AGN1","A_AGN2"], suite="IllustrisTNG", dataset="LH", map_type="Mcdm")
-wdm_data = data.CAMELS(idx_list=range(15000), parameters=['Omega_m', 'sigma_8', 'A_SN1', 'A_AGN1', 'A_AGN2', 'WDM'], suite="IllustrisTNG", dataset="WDM", map_type="Mcdm")
 
-# Load or compute CDM latents
-if os.path.exists(cdm_latents_path) and os.path.exists(cdm_params_path):
-    cdm_latents = np.load(cdm_latents_path)
-    cdm_params = np.load(cdm_params_path)
-    # print("Loaded CDM latents from cache.")
-else:
-    print("Computing CDM latents")
-    cdm_latents, cdm_params = compute_latents(cdm_data)
-    np.save(cdm_latents_path, cdm_latents)
-    np.save(cdm_params_path, cdm_params)
-    print("Saved CDM latents.")
+def compute_diffs(fm, dataset, batch_size, n_steps):
+    diffs, params = [], []
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
+    for imgs, cosmo in tqdm.tqdm(loader, desc="Computing reconstruction diffs"):
+        imgs = imgs.cuda()
+        with torch.no_grad():
+            spatial = fm.encoder(imgs)
+            vec = fm.decoder.velocity_model.fc(fm.decoder.velocity_model.pool(spatial).squeeze())
+            # generate reconstruction via decoder.predict
+            recon = fm.decoder.predict(x0=torch.randn_like(imgs), h=spatial,
+                                      n_sampling_steps=n_steps)
+        diff = (imgs - recon).cpu().numpy()
+        # flatten per-sample
+        diffs.append(diff.reshape(diff.shape[0], -1))
+        params.append(cosmo.numpy())
+    return np.vstack(diffs), np.vstack(params)
 
-# Load or compute WDM latents
-if os.path.exists(wdm_latents_path) and os.path.exists(wdm_params_path):
-    wdm_latents = np.load(wdm_latents_path)
-    wdm_params = np.load(wdm_params_path)
-    # print("Loaded WDM latents from cache.")
-else:
-    print("Computing WDM latents")
-    wdm_latents, wdm_params = compute_latents(wdm_data, is_cdm=False)
-    np.save(wdm_latents_path, wdm_latents)
-    np.save(wdm_params_path, wdm_params)
-    print("Saved WDM latents.")
 
-# Prepare dataset
-cdm_labels = np.zeros(len(cdm_latents))  # CDM labeled as 0
-wdm_labels = np.ones(len(wdm_latents))   # WDM labeled as 1
+def split_data(X, y, ratios=(0.6, 0.2, 0.2)):
+    n = len(X)
+    i1 = int(ratios[0]*n)
+    i2 = i1 + int(ratios[1]*n)
+    return (X[:i1], y[:i1]), (X[i1:i2], y[i1:i2]), (X[i2:], y[i2:])
 
-# Compute dataset sizes
-cdm_train_size = int(0.6 * len(cdm_data))
-cdm_val_size = int(0.2 * len(cdm_data))
-cdm_test_size = len(cdm_data) - cdm_train_size - cdm_val_size
 
-wdm_train_size = int(0.6 * len(wdm_data))
-wdm_val_size = int(0.2 * len(wdm_data))
-wdm_test_size = len(wdm_data) - wdm_train_size - wdm_val_size
+def make_dataloader(X, y, batch_size, shuffle=False):
+    X_t = torch.tensor(X, dtype=torch.float32)
+    y_t = torch.tensor(y, dtype=torch.float32)
+    ds = TensorDataset(X_t.unsqueeze(1), y_t)
+    return DataLoader(ds, batch_size=batch_size, shuffle=shuffle)
 
-# Select subsets
-cdm_train = cdm_data.y[:cdm_train_size].squeeze() if use_latents else cdm_latents[:cdm_train_size]
-cdm_val = cdm_data.y[cdm_train_size:cdm_train_size + cdm_val_size].squeeze() if use_latents else cdm_latents[cdm_train_size:cdm_train_size + cdm_val_size]
-cdm_test = cdm_data.y[cdm_train_size + cdm_val_size:].squeeze() if use_latents else cdm_latents[cdm_train_size + cdm_val_size:]
 
-wdm_train = wdm_data.y[:wdm_train_size].squeeze() if use_latents else wdm_latents[:wdm_train_size]
-wdm_val = wdm_data.y[wdm_train_size:wdm_train_size + wdm_val_size].squeeze() if use_latents else wdm_latents[wdm_train_size:wdm_train_size + wdm_val_size]
-wdm_test = wdm_data.y[wdm_train_size + wdm_val_size:].squeeze() if use_latents else wdm_latents[wdm_train_size + wdm_val_size:]
+def main():
+    args = parse_args()
+    os.makedirs(args.output_dir, exist_ok=True)
+    fig_dir = args.fig_dir or os.path.join(args.output_dir, 'figures')
+    os.makedirs(fig_dir, exist_ok=True)
 
-# Prepare dataset
-X_train = np.concatenate((cdm_train, wdm_train), axis=0)
-y_train = np.concatenate((np.zeros(len(cdm_train)), np.ones(len(wdm_train))), axis=0)
+    # load representer
+    fm = represent.Represent.load_from_checkpoint(args.checkpoint)
+    fm.encoder = fm.encoder.cuda()
+    fm.encoder.eval()
 
-X_val = np.concatenate((cdm_val, wdm_val), axis=0)
-y_val = np.concatenate((np.zeros(len(cdm_val)), np.ones(len(wdm_val))), axis=0)
+    # prepare datasets
+    cdm_params = ['Omega_m', 'sigma_8', 'A_SN1', 'A_SN2', 'A_AGN1', 'A_AGN2']
+    wdm_params = ['Omega_m', 'sigma_8', 'A_SN1', 'A_AGN1', 'A_AGN2', 'WDM']
+    cdm_ds = data.CAMELS(idx_list=range(15000), parameters=cdm_params,
+                         suite="IllustrisTNG", dataset="LH", map_type="Mcdm")
+    if args.wdm:
+        wdm_ds = data.CAMELS(idx_list=range(15000), parameters=wdm_params,
+                             suite="IllustrisTNG", dataset="WDM", map_type="Mcdm")
 
-X_test = np.concatenate((cdm_test, wdm_test), axis=0)
-y_test = np.concatenate((np.zeros(len(cdm_test)), np.ones(len(wdm_test))), axis=0)
+    # compute or load features
+    if args.use_latents:
+        X_cdm, y_cdm = compute_latents(fm, cdm_ds, args.batch_size)
+    else:
+        X_cdm, y_cdm = compute_diffs(fm, cdm_ds, args.batch_size, args.n_steps)
+    y_cdm = np.zeros(len(X_cdm))
 
-# Convert to tensors
-X_train_tensor = torch.tensor(X_train, dtype=torch.float32).unsqueeze(1)
-y_train_tensor = torch.tensor(y_train, dtype=torch.long)
+    if args.wdm:
+        if args.use_latents:
+            X_wdm, y_wdm = compute_latents(fm, wdm_ds, args.batch_size)
+        else:
+            X_wdm, y_wdm = compute_diffs(fm, wdm_ds, args.batch_size, args.n_steps)
+        y_wdm = np.ones(len(X_wdm))
+        X = np.vstack([X_cdm, X_wdm])
+        y = np.concatenate([y_cdm, y_wdm])
+    else:
+        X, y = X_cdm, y_cdm
 
-X_val_tensor = torch.tensor(X_val, dtype=torch.float32).unsqueeze(1)
-y_val_tensor = torch.tensor(y_val, dtype=torch.long)
+    # split into train/val/test
+    (X_tr, y_tr), (X_val, y_val), (X_te, y_te) = split_data(X, y)
 
-X_test_tensor = torch.tensor(X_test, dtype=torch.float32).unsqueeze(1)
-y_test_tensor = torch.tensor(y_test, dtype=torch.long)
+    # create loaders
+    tr_loader = make_dataloader(X_tr, y_tr, args.batch_size, shuffle=True)
+    val_loader = make_dataloader(X_val, y_val, args.batch_size)
+    te_loader = make_dataloader(X_te, y_te, args.batch_size)
 
-# Create datasets
-dataset_train = TensorDataset(X_train_tensor, y_train_tensor)
-dataset_val = TensorDataset(X_val_tensor, y_val_tensor)
-dataset_test = TensorDataset(X_test_tensor, y_test_tensor)
+    # build model
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    in_dim = X.shape[1]
+    model = ad.ADVec(hidden_dim=200, num_hiddens=3, in_dim=in_dim, output_size=1).to(device)
+    crit = nn.BCEWithLogitsLoss()
+    opt = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=args.epochs, eta_min=1e-7)
 
-# Create data loaders
-train_loader = DataLoader(dataset_train, batch_size=512, shuffle=True)
-val_loader = DataLoader(dataset_val, batch_size=512, shuffle=False)
-test_loader = DataLoader(dataset_test, batch_size=512, shuffle=False)
+    # training loop
+    best_val = float('inf')
+    best_state = None
+    for ep in range(args.epochs):
+        model.train()
+        train_loss = 0.0
+        for Xb, yb in tr_loader:
+            Xb, yb = Xb.to(device), yb.to(device)
+            opt.zero_grad()
+            out = model(Xb).squeeze()
+            loss = crit(out, yb)
+            loss.backward(); opt.step()
+            train_loss += loss.item()
+        # validation
+        model.eval()
+        val_loss = 0.0
+        with torch.no_grad():
+            for Xb, yb in val_loader:
+                Xb, yb = Xb.to(device), yb.to(device)
+                val_loss += crit(model(Xb).squeeze(), yb).item()
+        val_loss /= len(val_loader)
+        sched.step()
+        if val_loss < best_val:
+            best_val, best_state = val_loss, model.state_dict()
+        if ep % 10 == 0:
+            print(f"Epoch {ep+1}: train={train_loss/len(tr_loader):.4f}, val={val_loss:.4f}")
 
-# # Initialize model, loss, and optimizer
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model = ad.ADVec(hidden_dim=200, num_hiddens=3, in_dim=126, output_size=1).to(device)
-criterion = nn.BCEWithLogitsLoss()
-optimizer = optim.Adam(model.parameters(), lr=0.0001, weight_decay=1.0062357803767319e-05)
-scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=100, eta_min=1e-7)
+    # save best model and metrics
+    model_path = os.path.join(args.output_dir, 'best_ad_model.pt')
+    torch.save(best_state, model_path)
 
-# # Training loop
-num_epochs = 300
-best_val_loss = float('inf')
-best_model_state = None
-
-for epoch in range(num_epochs):
-    model.train()
-    running_loss = 0.0
-    for inputs, labels in train_loader:
-        inputs, labels = inputs.to(device).squeeze(0), labels.to(device)
-        optimizer.zero_grad()
-        outputs = model(inputs)
-        loss = criterion(outputs.squeeze(), labels.float())
-        loss.backward()
-        optimizer.step()
-        running_loss += loss.item()
-    
+    # test evaluation
+    model.load_state_dict(best_state)
     model.eval()
-    val_loss = 0.0
-    with torch.no_grad():
-        for inputs, labels in val_loader:
-            inputs, labels = inputs.to(device).squeeze(0), labels.to(device)
-            outputs = model(inputs)
-            loss = criterion(outputs.squeeze(), labels.float())
-            val_loss += loss.item()
-    
-    val_loss /= len(val_loader)
-    if val_loss < best_val_loss:
-        best_val_loss = val_loss
-        best_model_state = model.state_dict()
-    
-    scheduler.step()
-    print(f"Epoch {epoch+1}, Loss: {running_loss / len(train_loader)}, Val Loss: {val_loss}")
+    correct = 0
+    total = 0
+    for Xb, yb in te_loader:
+        Xb, yb = Xb.to(device), yb.to(device)
+        preds = (torch.sigmoid(model(Xb).squeeze()) > 0.5).float()
+        correct += (preds == yb).sum().item()
+        total += yb.size(0)
+    acc = correct / total * 100
 
+    metrics_path = os.path.join(args.output_dir, 'metrics.txt')
+    with open(metrics_path, 'w') as f:
+        f.write(f"Test Accuracy: {acc:.2f}%\n")
 
-# Save best model state
-torch.save(best_model_state, f"cosmo_compression/downstream/ad_params_latent_{use_latents}.pt")
-# Evaluate model on test set
-model.load_state_dict(torch.load(f"cosmo_compression/downstream/ad_params_latent_{use_latents}.pt"))
+    print(f"Saved model to {model_path}")
+    print(f"Saved metrics to {metrics_path}")
 
-        
-# Track incorrectly classified WDM samples
-incorrect_wdm_params = []
-
-# Evaluate model on test set
-model.eval()
-correct = 0
-with torch.no_grad():
-    for i, (inputs, labels) in enumerate(test_loader):
-        inputs, labels = inputs.to(device).squeeze(0), labels.to(device)
-        outputs = model(inputs)
-        predicted = (torch.sigmoid(outputs.squeeze()) > 0.5).long()
-        correct += torch.sum(predicted == labels)
-
-print(incorrect_wdm_params)
-# Save incorrect WDM parameters
-np.save("incorrect_wdm_params.npy", np.array(incorrect_wdm_params))
-        
-print(f"Test Accuracy of Anomaly Detection on Latent: {100 * correct / len(test_loader.dataset):.2f}%")
+if __name__ == '__main__':
+    main()

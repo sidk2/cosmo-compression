@@ -153,7 +153,7 @@ def train(args):
 
     fm = represent.Represent(
         log_wandb=args.use_wandb,
-        latent_img_channels=64,
+        latent_img_channels=args.latent_img_channels,
     )
     # fm.apply(init_weights)
     fm.train()
@@ -168,7 +168,7 @@ def train(args):
         devices=args.gpus,
         check_val_every_n_epoch=None,
         val_check_interval=args.eval_every,
-        max_epochs=300,
+        max_epochs=200,
         profiler="simple" if args.profile else None,
         strategy="ddp_find_unused_parameters_true",
         accelerator="gpu",
@@ -198,6 +198,7 @@ if __name__ == "__main__":
     parser.add_argument('--use_wandb', action='store_true', default=False)
     parser.add_argument('--profile', action='store_true', default=False)
     parser.add_argument('--gpus', type=int, default=5, help="Number of GPUs to use")
+    parser.add_argument('--latent_img_channels', type=int, default=16, help="Number of latent image channels")
 
     args = parser.parse_args()
     train(args)
