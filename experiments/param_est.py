@@ -1,7 +1,7 @@
 import os
 import argparse
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "5"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -50,6 +50,15 @@ def parse_args():
         '--no-latent', action='store_true',
         help='Disable latent encoding, use direct image features'
     )
+    parser.add_argument(
+        '-c', '--channel', type=int, default=0,
+        help='Channel to use for latent encoding'
+    )
+    
+    parser.add_argument(
+        '-x', '--foo', type=int, default=64
+    )
+    
     return parser.parse_args()
 
 
@@ -147,7 +156,7 @@ def main():
         opt = optim.Adam(model.parameters(), lr=lr, weight_decay=wd)
         loss_fn = nn.MSELoss()
 
-        for _ in range(100):
+        for _ in range(30):
             model.train()
             for xb, yb in train_loader:
                 xb, yb = xb.to(device), yb.to(device)[:, : (1 if wdm else 2)]
@@ -162,7 +171,7 @@ def main():
         return vl
 
     study = optuna.create_study(direction='minimize')
-    study.optimize(objective, n_trials=30)
+    study.optimize(objective, n_trials=10)
     best = study.best_params
     print("Best hyperparameters:", best)
 
@@ -181,7 +190,7 @@ def main():
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=500, eta_min=1e-7)
     best_loss = float('inf')
 
-    for epoch in range(500):
+    for epoch in range(200):
         model.train()
         run_loss = 0.0
         
@@ -244,8 +253,8 @@ def main():
     per_param = np.nanmean(rel_err, axis=0)
     overall = np.nanmean(rel_err)
     txt_path = os.path.join(fig_dir, 'val_pct_error.txt')
-    with open(txt_path, 'w') as f:
-        f.write("Validation Percent Relative Error\n")
+    with open(txt_path, 'a+') as f:
+        f.write(f"Validation Percent Relative Error with {args.channel}\n")
         for name, err in zip(plot_labels, per_param):
             f.write(f"{name}: {err:.4f}\n")
         f.write(f"Overall: {overall:.4f}\n")

@@ -42,7 +42,7 @@ loader = torchdata.DataLoader(
     pin_memory=True,
 )
 
-fm = represent.Represent.load_from_checkpoint("latent_ablation_hierarchical_splitting/no_hierarchical_32/step=step=37200-val_loss=0.335.ckpt").cuda()
+fm = represent.Represent.load_from_checkpoint("latent_ablation_hierarchical_splitting/no_hierarchical_16/step=step=37200-val_loss=0.342.ckpt").cuda()
 fm.eval()
 
 gts = []
@@ -52,7 +52,7 @@ Pk_fin = np.zeros(181)
 img, cosmo = dataset[0]
 img = torch.tensor(img).unsqueeze(0).cuda()
 
-n_sampling_steps = 30
+n_sampling_steps = 40
         
 h = fm.encoder(img)
 
@@ -86,19 +86,11 @@ target_img = gts[-1][2]
 h_linear = []
 # Define latent interpolation ranges and labels
 modulation_ranges = {
-    "Stage 0" : list(range(0, 32, 8)),
-    "Stage 1" : list(range(1, 32, 8)),
-    "Stage 2" : list(range(2, 32, 8)),
-    "Stage 3" : list(range(3, 32, 8)),
-    "Stage 4" : list(range(4, 32, 8)),
-    "Stage 5" : list(range(5, 32, 8)),
-    "Stage 6" : list(range(6, 32, 8)),
-    "Stage 7" : list(range(7, 32, 8)),
-    "Stage 8" : list(range(8, 32, 8)),
+    "Synthetic Samples" : list(range(0, 16)),
     
 }
 
-num_samples_per_stage = 5
+num_samples_per_stage = 10
 all_interpolations = []
 labels = []
 
@@ -147,6 +139,14 @@ for i, latent_interpolation in tqdm.tqdm(enumerate(all_interpolations)):
     
     # Use the first sample for visualization
     images_interpolations.append(preds[0] * std + mean)
+    if i == (len(all_interpolations) - 1):
+        fig, ax = plt.subplots(1, 2, figsize=(12, 4))
+        ax[0].imshow(gts[-1][1].cpu().numpy()[0, 0, :, :], cmap='viridis')
+        ax[0].set_title("Source Image")
+        ax[1].imshow(preds[0], cmap='viridis')
+        ax[1].set_title("Reconstruction")
+        plt.savefig(f"cosmo_compression/results/first_interp.png")
+        plt.close()
 
 def create_combined_animation_with_pauses(Pk_data, images, labels, filename, pause_frames=5):
     fig, axs = plt.subplots(2, 2, figsize=(12, 12))
@@ -217,7 +217,7 @@ def create_combined_animation_with_pauses(Pk_data, images, labels, filename, pau
         )
 
     ani = FuncAnimation(fig, update, frames=len(extended_frames), blit=True)
-    ani.save(filename, writer=PillowWriter(fps=5))
+    ani.save(filename, writer=PillowWriter(fps=2))
     plt.close(fig)
 
 # Create the combined animation with pauses after each modulation phase
