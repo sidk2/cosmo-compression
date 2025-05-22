@@ -1,7 +1,7 @@
 import os
 import argparse
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -73,7 +73,6 @@ def main():
     os.makedirs(fig_dir, exist_ok=True)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    os.environ["CUDA_VISIBLE_DEVICES"] = os.environ.get("CUDA_VISIBLE_DEVICES", "0")
 
     print(f"Performing parameter estimation with WDM={wdm}, Latent={use_latent}")
 

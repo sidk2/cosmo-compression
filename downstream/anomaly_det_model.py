@@ -129,22 +129,52 @@ class AnomalyDetectorImg(nn.Module):
 
         return x
     
-class ADVec(nn.Module):
-    def __init__(self, hidden_dim, num_hiddens, in_dim, output_size):
-        super(ADVec, self).__init__()
-        self.in_transform = nn.Linear(in_dim, hidden_dim)
-        self.out_transform = nn.Linear(256, output_size)
-        
-        self.hiddens = nn.ModuleList(
-            [nn.Linear(hidden_dim, hidden_dim) for _ in range(num_hiddens)]
-        )
-        self.hiddens.append(nn.Linear(hidden_dim, 256))
-        
-        self.LeakyReLU = nn.LeakyReLU(0.2)
-    
+class AnomalyDetectorLatent(nn.Module):
+    def __init__(self, hidden, dr, channels):
+        super().__init__()
+        # For 16×16 input, four down-sampling blocks will take you to 1×1
+        layers = []
+        for i in range(2):
+            out_ch = hidden * (2**i)
+            # two 3×3 convs
+            layers += [
+                nn.Conv2d(channels, out_ch, kernel_size=3, padding=1, padding_mode='circular', bias=True),
+                nn.BatchNorm2d(out_ch),
+                nn.LeakyReLU(0.2, inplace=True),
+                nn.Conv2d(out_ch, out_ch, kernel_size=3, padding=1, padding_mode='circular', bias=True),
+                nn.BatchNorm2d(out_ch),
+                nn.LeakyReLU(0.2, inplace=True),
+                # 2×2 stride-2 pooling via conv
+                nn.Conv2d(out_ch, out_ch, kernel_size=2, stride=2, padding=0, padding_mode='circular', bias=True),
+                nn.BatchNorm2d(out_ch),
+                nn.LeakyReLU(0.2, inplace=True),
+            ]
+            channels = out_ch
+
+        self.encoder = nn.Sequential(*layers)
+
+        # adaptive pool to get (batch, channels, 1,1)
+        self.pool = nn.AdaptiveAvgPool2d(1)
+
+        self.dropout = nn.Dropout(dr)
+        self.fc1     = nn.Linear(channels, 64 * hidden)
+        self.fc2     = nn.Linear(64 * hidden, 1)
+        self.LeakyReLU = nn.LeakyReLU(0.2, inplace=True)
+
+        # init
+        for m in self.modules():
+            if isinstance(m, (nn.Conv2d, nn.Linear)):
+                nn.init.kaiming_normal_(m.weight)
+            elif isinstance(m, (nn.BatchNorm2d, nn.BatchNorm1d)):
+                nn.init.constant_(m.weight, 1.)
+                nn.init.constant_(m.bias, 0.)
+
     def forward(self, x):
-        x = self.LeakyReLU(self.in_transform(x))
-        for hidden in self.hiddens:
-            x = self.LeakyReLU(hidden(x))
-        x = self.out_transform(x)
+        x = self.encoder(x)            # -> batch×(16·hidden)×1×1
+        x = self.pool(x)              # ensure 1×1
+        x = x.view(x.size(0), -1)     # -> batch×(16·hidden)
+        x = self.dropout(x)
+        x = self.LeakyReLU(self.fc1(x))
+        x = self.dropout(x)
+        x = self.fc2(x)
         return x

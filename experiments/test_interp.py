@@ -18,7 +18,7 @@ from cosmo_compression.model import represent
 
 torch.manual_seed(42)
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 MAP_TYPE = "Mcdm"
 MAP_RESOLUTION = 256
@@ -42,7 +42,7 @@ loader = torchdata.DataLoader(
     pin_memory=True,
 )
 
-fm = represent.Represent.load_from_checkpoint("latent_ablation_hierarchical_splitting/no_hierarchical_16/step=step=37200-val_loss=0.342.ckpt").cuda()
+fm = represent.Represent.load_from_checkpoint("latent_ablation_non_hierarchical_splitting/no_hierarchical_16/step=step=27200-val_loss=0.312.ckpt").cuda()
 fm.eval()
 
 gts = []
@@ -52,7 +52,7 @@ Pk_fin = np.zeros(181)
 img, cosmo = dataset[0]
 img = torch.tensor(img).unsqueeze(0).cuda()
 
-n_sampling_steps = 40
+n_sampling_steps = 20
         
 h = fm.encoder(img)
 
@@ -86,8 +86,10 @@ target_img = gts[-1][2]
 h_linear = []
 # Define latent interpolation ranges and labels
 modulation_ranges = {
-    "Synthetic Samples" : list(range(0, 16)),
-    
+    "Stage 0" : list(range(0, 4)),
+    "Stage 1" : list(range(4, 8)),
+    "Stage 2" : list(range(8, 12)),
+    "Stage 3" : list(range(12, 16)),
 }
 
 num_samples_per_stage = 10
@@ -217,7 +219,7 @@ def create_combined_animation_with_pauses(Pk_data, images, labels, filename, pau
         )
 
     ani = FuncAnimation(fig, update, frames=len(extended_frames), blit=True)
-    ani.save(filename, writer=PillowWriter(fps=2))
+    ani.save(filename, writer=PillowWriter(fps=5))
     plt.close(fig)
 
 # Create the combined animation with pauses after each modulation phase

@@ -16,6 +16,7 @@ from cosmo_compression.downstream import anomaly_det_model as ad
 
 np.random.seed(42)
 torch.manual_seed(42)
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -182,8 +183,7 @@ def main():
     os.makedirs(args.latent_save_dir, exist_ok=True)
 
     # load representer
-    fm = represent.Represent.load_from_checkpoint(args.checkpoint)
-    fm.encoder = fm.encoder.cuda()
+    fm = represent.Represent.load_from_checkpoint(args.checkpoint).cuda()
     fm.encoder.eval()
 
     # prepare datasets
@@ -239,7 +239,7 @@ def main():
     
     # def objective(trial):
     #     lr = trial.suggest_loguniform('lr', 1e-6, 1e-1)
-    #     wd = trial.suggest_loguniform('weight_decay', 1e-8, 1e-4)
+    #     wd = trial.suggest_loguniform('weight_decay', 1e-8, 1e-2)
     #     hidden_dim = trial.suggest_int('hidden', 1, 32)
 
     #     model = ad.AnomalyDetectorImg(hidden=hidden_dim, dr=0.3, channels=1).to(device)
@@ -268,11 +268,13 @@ def main():
     channels = X.shape[1] if mode == 'latents' else 1
     model = ad.AnomalyDetectorImg(hidden=2, dr=0.3, channels=channels).to(device)
     crit = nn.BCEWithLogitsLoss()
-    opt = optim.Adam(model.parameters(), lr=1e-5, weight_decay=1e-8)
+    opt = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-4)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(
         opt, T_max=args.epochs, eta_min=1e-7
     )
 
+    patience = 10
+    no_improve = 0
     best_val = float('inf')
     best_state = None
     for ep in range(args.epochs):
@@ -296,6 +298,12 @@ def main():
         sched.step()
         if val_loss < best_val:
             best_val, best_state = val_loss, model.state_dict()
+            no_improve = 0
+        else:
+            no_improve += 1
+        if no_improve >= patience:
+            print(f"Stopping early at epoch {ep+1}")
+            break
         print(f"Epoch {ep + 1}: train={train_loss/len(tr_loader):.4f}, val={val_loss:.4f}")
 
     # save best model
@@ -316,7 +324,7 @@ def main():
     # save metrics
     metrics_dir = os.path.join(args.latent_save_dir, args.subdir)
     os.makedirs(metrics_dir, exist_ok=True)
-    with open(os.path.join(metrics_dir, 'metrics.txt'), 'w') as f:
+    with open(os.path.join(metrics_dir, 'metrics.txt'), 'a+') as f:
         f.write(f"Test Accuracy: {acc:.2f}%\n")
 
     print(f"Saved model to {model_path}")
