@@ -1,7 +1,7 @@
 import os
 import argparse
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -114,6 +114,8 @@ def main():
                 imgs = imgs.to(device)
                 if use_latent:
                     latent = fm.encoder(imgs)
+                    if args.channel is not None:
+                        latent = latent[:, args.channel:args.channel+1, :, :] + torch.zeros_like(latent)
                     feats = fm.decoder.velocity_model.fc(
                         fm.decoder.velocity_model.pool(latent).squeeze()
                     )

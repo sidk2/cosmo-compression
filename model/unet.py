@@ -424,6 +424,11 @@ class UNet(nn.Module):
                 time_dim=time_dim,
             ),
             UpStepWoutRes(
+                in_channels=int(self.num_latent_channels),
+                out_channels=int(self.num_latent_channels ),
+                time_dim=time_dim,
+            ),
+            UpStepWoutRes(
                 in_channels=int(self.num_latent_channels ),
                 out_channels=int(self.num_latent_channels ),
                 time_dim=time_dim,

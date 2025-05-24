@@ -58,6 +58,10 @@ def parse_args():
         '-s', '--subdir', type=str, default=None,
         help='Subdirectory to save outputs (default: <output-dir>/<subdir>)'
     )
+    parser.add_argument(
+        '-t', '--train', action='store_true',
+        help='Train a new model', default=False
+    )
     return parser.parse_args()
 
 def compute_latents(fm, dataset, batch_size):
@@ -190,12 +194,12 @@ def main():
     cdm_params = ['Omega_m', 'sigma_8', 'A_SN1', 'A_SN2', 'A_AGN1', 'A_AGN2']
     wdm_params = ['Omega_m', 'sigma_8', 'A_SN1', 'A_AGN1', 'A_AGN2', 'WDM']
     cdm_ds = data.CAMELS(
-        idx_list=range(5000), parameters=cdm_params,
+        idx_list=range(10000), parameters=cdm_params,
         suite="IllustrisTNG", dataset="LH", map_type="Mcdm"
     )
     if args.wdm:
         wdm_ds = data.CAMELS(
-            idx_list=range(5000), parameters=wdm_params,
+            idx_list=range(10000), parameters=wdm_params,
             suite="IllustrisTNG", dataset="WDM", map_type="Mcdm"
         )
 
@@ -216,6 +220,7 @@ def main():
 
     # shuffle to ensure class balance
     perm = np.random.permutation(len(y))
+    np.save(os.path.join(args.latent_save_dir, args.subdir, 'perm.npy'), perm)
     X = X[perm]
     y = y[perm]
 
@@ -237,81 +242,83 @@ def main():
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
-    # def objective(trial):
-    #     lr = trial.suggest_loguniform('lr', 1e-6, 1e-1)
-    #     wd = trial.suggest_loguniform('weight_decay', 1e-8, 1e-2)
-    #     hidden_dim = trial.suggest_int('hidden', 1, 32)
+    def objective(trial):
+        lr = trial.suggest_loguniform('lr', 1e-6, 1e-1)
+        wd = trial.suggest_loguniform('weight_decay', 1e-8, 1e-2)
+        hidden_dim = trial.suggest_int('hidden', 1, 32)
 
-    #     model = ad.AnomalyDetectorImg(hidden=hidden_dim, dr=0.3, channels=1).to(device)
-    #     opt = optim.Adam(model.parameters(), lr=lr, weight_decay=wd)
-    #     loss_fn = nn.BCEWithLogitsLoss()
+        model = ad.AnomalyDetectorImg(hidden=hidden_dim, dr=0.3, channels=1).to(device)
+        opt = optim.Adam(model.parameters(), lr=lr, weight_decay=wd)
+        loss_fn = nn.BCEWithLogitsLoss()
 
-    #     for _ in range(20):
-    #         model.train()
-    #         for xb, yb in tr_loader:
-    #             xb, yb = xb.to(device), yb.to(device)
-    #             opt.zero_grad()
-    #             out = model(xb).squeeze()
-    #             l = loss_fn(out, yb)
-    #             l.backward()
-    #             opt.step()
-    #         model.eval()
-    #         vl = np.mean([loss_fn(model(xb.to(device)).squeeze(), yb.to(device)).item()
-    #                       for xb, yb in val_loader])
-    #     return vl
+        for _ in range(20):
+            model.train()
+            for xb, yb in tr_loader:
+                xb, yb = xb.to(device), yb.to(device)
+                opt.zero_grad()
+                out = model(xb).squeeze()
+                l = loss_fn(out, yb)
+                l.backward()
+                opt.step()
+            model.eval()
+            vl = np.mean([loss_fn(model(xb.to(device)).squeeze(), yb.to(device)).item()
+                          for xb, yb in val_loader])
+        return vl
 
-    # study = optuna.create_study(direction='minimize')
-    # study.optimize(objective, n_trials=30)
-    # best = study.best_params
+    study = optuna.create_study(direction='minimize')
+    study.optimize(objective, n_trials=30)
+    best = study.best_params
 
     # build and train model
     channels = X.shape[1] if mode == 'latents' else 1
-    model = ad.AnomalyDetectorImg(hidden=2, dr=0.3, channels=channels).to(device)
-    crit = nn.BCEWithLogitsLoss()
-    opt = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-4)
-    sched = torch.optim.lr_scheduler.CosineAnnealingLR(
-        opt, T_max=args.epochs, eta_min=1e-7
-    )
+    model = ad.AnomalyDetectorImg(hidden=best['hidden'], dr=0.3, channels=channels).to(device)
+    
+    if args.train:
+        crit = nn.BCEWithLogitsLoss()
+        opt = optim.Adam(model.parameters(), lr=best['lr'], weight_decay=best['weight_decay'])
+        sched = torch.optim.lr_scheduler.CosineAnnealingLR(
+            opt, T_max=args.epochs, eta_min=1e-7
+        )
 
-    patience = 10
-    no_improve = 0
-    best_val = float('inf')
-    best_state = None
-    for ep in range(args.epochs):
-        model.train()
-        train_loss = 0.0
-        for Xb, yb in tr_loader:
-            Xb, yb = Xb.to(device), yb.to(device)
-            opt.zero_grad()
-            out = model(Xb).squeeze()
-            loss = crit(out, yb)
-            loss.backward()
-            opt.step()
-            train_loss += loss.item()
-        model.eval()
-        val_loss = 0.0
-        with torch.no_grad():
-            for Xb, yb in val_loader:
+        patience = 10
+        no_improve = 0
+        best_val = float('inf')
+        best_state = None
+        for ep in range(args.epochs):
+            model.train()
+            train_loss = 0.0
+            for Xb, yb in tr_loader:
                 Xb, yb = Xb.to(device), yb.to(device)
-                val_loss += crit(model(Xb).squeeze(), yb).item()
-        val_loss /= len(val_loader)
-        sched.step()
-        if val_loss < best_val:
-            best_val, best_state = val_loss, model.state_dict()
-            no_improve = 0
-        else:
-            no_improve += 1
-        if no_improve >= patience:
-            print(f"Stopping early at epoch {ep+1}")
-            break
-        print(f"Epoch {ep + 1}: train={train_loss/len(tr_loader):.4f}, val={val_loss:.4f}")
+                opt.zero_grad()
+                out = model(Xb).squeeze()
+                loss = crit(out, yb)
+                loss.backward()
+                opt.step()
+                train_loss += loss.item()
+            model.eval()
+            val_loss = 0.0
+            with torch.no_grad():
+                for Xb, yb in val_loader:
+                    Xb, yb = Xb.to(device), yb.to(device)
+                    val_loss += crit(model(Xb).squeeze(), yb).item()
+            val_loss /= len(val_loader)
+            sched.step()
+            if val_loss < best_val:
+                best_val, best_state = val_loss, model.state_dict()
+                no_improve = 0
+            else:
+                no_improve += 1
+            if no_improve >= patience:
+                print(f"Stopping early at epoch {ep+1}")
+                break
+            print(f"Epoch {ep + 1}: train={train_loss/len(tr_loader):.4f}, val={val_loss:.4f}")
 
     # save best model
     model_path = os.path.join(args.output_dir, 'best_ad_model.pt')
-    torch.save(best_state, model_path)
+    # torch.save(best_state, model_path)
 
     # test accuracy
-    model.load_state_dict(best_state)
+    model.load_state_dict(torch.load(model_path))
     model.eval()
     correct, total = 0, 0
     for Xb, yb in te_loader:

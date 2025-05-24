@@ -1,6 +1,6 @@
 import os
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "1,2, 3, 4"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1, 2, 3,4"
 os.environ["HF_HOME"] = "../../../monolith/global_data/astro_compression/"
 
 from pathlib import Path

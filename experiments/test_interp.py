@@ -42,7 +42,7 @@ loader = torchdata.DataLoader(
     pin_memory=True,
 )
 
-fm = represent.Represent.load_from_checkpoint("latent_ablation_non_hierarchical_splitting/no_hierarchical_16/step=step=27200-val_loss=0.312.ckpt").cuda()
+fm = represent.Represent.load_from_checkpoint("latent_ablation_8x8_non_hierarchical_splitting/no_hierarchical_64/step=step=25400-val_loss=0.347.ckpt").cuda()
 fm.eval()
 
 gts = []
@@ -52,7 +52,7 @@ Pk_fin = np.zeros(181)
 img, cosmo = dataset[0]
 img = torch.tensor(img).unsqueeze(0).cuda()
 
-n_sampling_steps = 20
+n_sampling_steps = 50
         
 h = fm.encoder(img)
 
@@ -85,14 +85,9 @@ target_img = gts[-1][2]
 # Initialize a list for the interpolated latents
 h_linear = []
 # Define latent interpolation ranges and labels
-modulation_ranges = {
-    "Stage 0" : list(range(0, 4)),
-    "Stage 1" : list(range(4, 8)),
-    "Stage 2" : list(range(8, 12)),
-    "Stage 3" : list(range(12, 16)),
-}
+modulation_ranges = {f"Stage {i}": list(range(i, i+1)) for i in range(64)}
 
-num_samples_per_stage = 10
+num_samples_per_stage = 5
 all_interpolations = []
 labels = []
 
