@@ -158,7 +158,7 @@ class UNetConv(nn.Module):
         time_dim: int,
         int_channels: int | None = None,
         residual: bool = False,
-        latent_vec_dim: int = 14,
+        latent_vec_dim: int = 14 * 9,
     ):
         super().__init__()
         self.residual = residual
@@ -264,7 +264,7 @@ class DownStep(nn.Module):
         )
         self.gdn_layer = gdn.GDN(ch=out_channels, device="cuda")
 
-    def forward(self, x: torch.Tensor, t, z) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, t, z = None) -> torch.Tensor:
         """Overloads forward method of nn.Module"""
         return self.gdn_layer(self.conv2(self.conv1(self.pooling(x), t, z), t, z))
 
@@ -296,7 +296,7 @@ class UpStep(nn.Module):
 
         self.gdn_layer = gdn.GDN(ch=out_channels, device="cuda", inverse=True)
 
-    def forward(self, x: torch.Tensor, res_x: torch.Tensor, t, z) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, res_x: torch.Tensor, t, z = None) -> torch.Tensor:
         """Overloads forward method of nn.Module"""
         x = self.conv1(x, t, z)
         x = torch.cat([res_x, x], dim=1)
@@ -344,7 +344,7 @@ class UNet(nn.Module):
         n_channels: int,
         time_dim: int = 256,
         latent_img_channels: int = 32,
-        latent_vec_dim: int = 14,
+        latent_vec_dim: int = 14 * 9,
     ):
         super(UNet, self).__init__()
         self.time_dim = time_dim
@@ -363,7 +363,6 @@ class UNet(nn.Module):
             out_channels=128,
             time_dim=time_dim,
         )
-        # self.sa1 = SelfAttention(channels=128)
         self.down2 = DownStep(
             in_channels=128 ,
             out_channels=256,
@@ -494,14 +493,14 @@ class UNet(nn.Module):
 
         # --- End of masking ---
 
-        repr = self.fc(self.pool(spatial).squeeze())
-        if repr.dim() == 1:
-            repr = repr.unsqueeze(0)
+        vec_latent = self.fc(self.pool(spatial).squeeze())
+        if vec_latent.dim() == 1:
+            vec_latent = vec_latent.unsqueeze(0)
 
         t = self.pos_encoding(t, self.time_dim)
 
         # Downsampling stages
-        x1 = self.inc(x, t, repr[:, 0 : self.latent_vec_dim])
+        x1 = self.inc(x, t, vec_latent)
         x1 = torch.cat(
             [
                 self.latent_upsampler_0(
@@ -511,32 +510,32 @@ class UNet(nn.Module):
             ],
             dim=1,
         )
-        x2 = self.down1(x1, t, repr[:, self.latent_vec_dim : self.latent_vec_dim * 2])
+        x2 = self.down1(x1, t)
         x3 = self.down2(
-            x2, t, repr[:, self.latent_vec_dim * 2 : self.latent_vec_dim * 3]
+            x2, t
         )
         x3 = self.sa2(x3)
         x4 = self.down3(
-            x3, t, repr[:, self.latent_vec_dim * 3 : self.latent_vec_dim * 4]
+            x3, t
         )
         x4 = self.sa3(x4)
         x5 = self.down4(
-            x4, t, repr[:, self.latent_vec_dim * 4 : self.latent_vec_dim * 5]
+            x4, t
         )
 
         # Upsampling stages
         x = self.up0(
-            x5, x4, t, repr[:, self.latent_vec_dim * 5 : self.latent_vec_dim * 6]
+            x5, x4, t
         )
         x = self.up1(
-            x, x3, t, repr[:, self.latent_vec_dim * 6 : self.latent_vec_dim * 7]
+            x, x3, t
         )
         x = self.sa1_inv(x)
         x = self.up2(
-            x, x2, t, repr[:, self.latent_vec_dim * 7 : self.latent_vec_dim * 8]
+            x, x2, t
         )
         x = self.up3(
-            x, x1, t, repr[:, self.latent_vec_dim * 8 : self.latent_vec_dim * 9]
+            x, x1, t
         )
 
         return self.outc(x)

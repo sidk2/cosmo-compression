@@ -1,6 +1,6 @@
 import os
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "1,2, 3, 4"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0, 1,2, 3, 4, 5"
 os.environ["HF_HOME"] = "../../../monolith/global_data/astro_compression/"
 
 from pathlib import Path
@@ -156,7 +156,6 @@ def train(args):
         latent_img_channels=args.latent_img_channels,
     )
     fm.apply(init_weights)
-    # fm = represent.Represent.load_from_checkpoint("latent_ablation_non_hierarchical_splitting/no_hierarchical_64/last.ckpt")
     fm.train()
 
     trainer = Trainer(
@@ -169,7 +168,7 @@ def train(args):
         devices=args.gpus,
         check_val_every_n_epoch=None,
         val_check_interval=args.eval_every,
-        max_epochs=154,
+        max_epochs=200,
         profiler="simple" if args.profile else None,
         strategy="ddp_find_unused_parameters_true",
         accelerator="gpu",

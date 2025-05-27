@@ -42,7 +42,7 @@ loader = torchdata.DataLoader(
     pin_memory=True,
 )
 
-fm = represent.Represent.load_from_checkpoint("latent_ablation_non_hierarchical_splitting/no_hierarchical_16/step=step=27200-val_loss=0.312.ckpt").cuda()
+fm = represent.Represent.load_from_checkpoint("16x16_diti_setup_non_hier/16x16_diti_no_latent_splitting/step=step=21800-val_loss=0.335.ckpt").cuda()
 fm.eval()
 
 gts = []
