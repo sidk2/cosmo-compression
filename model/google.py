@@ -61,10 +61,11 @@ class FactorizedPrior(LightningModule):
         self.N = N
         self.M = M
         self.latent_dim = 256
+        self.final_spatial_dims = 4
         # vae components
-        self.fc_mu = nn.Linear(self.M * 4 * 4, self.latent_dim)
-        self.fc_logvar = nn.Linear(self.M * 4 * 4, self.latent_dim)
-        self.fc_decoder = nn.Linear(self.latent_dim, self.M * 4 * 4)
+        self.fc_mu = nn.Linear(self.M * self.final_spatial_dims * self.final_spatial_dims, self.latent_dim)
+        self.fc_logvar = nn.Linear(self.M * self.final_spatial_dims * self.final_spatial_dims, self.latent_dim)
+        self.fc_decoder = nn.Linear(self.latent_dim, self.M * self.final_spatial_dims * self.final_spatial_dims)
 
     def reparameterize(self, mu, logvar) -> torch.Tensor:
         std = torch.exp(0.5 * logvar)
@@ -79,7 +80,7 @@ class FactorizedPrior(LightningModule):
         latent = self.reparameterize(mu, logvar)
         latent = self.fc_decoder(latent)
         # latent = nn.GELU()(latent)
-        latent = latent.view(x.size(0), self.M, 4, 4)
+        latent = latent.view(x.size(0), self.final_spatial_dims, self.final_spatial_dims)
         dec_out = self.decoder(latent)
         return dec_out, mu, logvar
 
