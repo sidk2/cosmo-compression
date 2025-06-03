@@ -107,6 +107,7 @@ class FlowMatching(nn.Module):
         h: torch.Tensor | None = None,
         n_sampling_steps: int = 100,
         solver="dopri5",
+        full_return = False,
     ) -> torch.Tensor:
         """Runs inference for flow matching model.
 
@@ -132,4 +133,4 @@ class FlowMatching(nn.Module):
                 x0,
                 t_span=torch.linspace(0, 1, n_sampling_steps),
             )
-        return traj[-1]
+        return traj[-1] if not full_return else traj

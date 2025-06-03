@@ -470,26 +470,24 @@ class UNet(nn.Module):
 
         spatial = z  # [B, C, H, W]
         B, C, H, W = spatial.shape
-        num_segments_spatial = 1
-        seg_size_spatial = C // num_segments_spatial
 
         t = t.unsqueeze(-1)
         if t.shape[0] != B:
             t = t.expand(B, t.shape[0])
 
-        for seg in range(num_segments_spatial):
-            start = seg * seg_size_spatial
-            end = (seg + 1) * seg_size_spatial
+        start = 0
+        end = C
+                
+        for b in range(B):
+            t_val = float(t[b])
+            num_mask = int(C * t_val)
+            unmasked = C - num_mask
 
-            for b in range(B):
-                t_val = t[b].item()
-                num_mask_channels = int(seg_size_spatial * t_val)
-                unmasked = seg_size_spatial - num_mask_channels
-
-                if num_mask_channels > 0:
-                    # index of the *last* unmasked channel within [start:end)
-                    last_idx = start + (unmasked - 1)
-                    spatial[b : b + 1, last_idx + 1 :, :, :] = 0
+            # index of the last channel we want to keep gradients on
+            last_unmasked = unmasked - 1
+            # zero-out everything *after* last_unmasked
+            if num_mask > 0:
+                spatial[b, last_unmasked+1 :, ...] = 0
 
         # --- End of masking ---
 

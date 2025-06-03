@@ -161,6 +161,18 @@ class Represent(LightningModule):
         h = self.encoder(y)
 
         if log:
+            
+            # fig, axs = plt.subplots(4, 4, figsize=(10, 10))
+            # for i in range(4):
+            #     for j in range(4):
+            #         axs[i, j].imshow(h[0, i * 4 + j, :, :].detach().cpu().numpy())
+            #         axs[i, j].set_title(f"Channel {i * 4 + j}")
+            #         axs[i, j].axis("off")
+
+            # plt.savefig("cosmo_compression/results/latents.png")
+            # log_matplotlib_figure("latent")
+            # plt.close()
+
 
             x0 = torch.randn_like(y)
             pred = self.decoder.predict(

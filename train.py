@@ -12,7 +12,7 @@ import random
 
 from torchvision.datasets import CelebA
 from lightning.pytorch.loggers import WandbLogger
-from lightning.pytorch.callbacks import ModelCheckpoint, LearningRateMonitor
+from lightning.pytorch.callbacks import ModelCheckpoint, LearningRateMonitor, EarlyStopping
 from lightning import Trainer
 from lightning.pytorch import seed_everything
 from datasets import load_dataset
@@ -157,7 +157,7 @@ def train(args):
     )
     fm.apply(init_weights)
     fm.train()
-
+        
     trainer = Trainer(
         max_steps=args.max_steps,
         gradient_clip_val=args.grad_clip,
@@ -166,9 +166,9 @@ def train(args):
         accumulate_grad_batches=args.accumulate_gradients or 1,
         callbacks=[checkpoint_callback, lr_monitor],
         devices=args.gpus,
-        check_val_every_n_epoch=None,
-        val_check_interval=args.eval_every,
-        max_epochs=200,
+        check_val_every_n_epoch=1,
+        # val_check_interval=args.eval_every,
+        max_epochs=150,
         profiler="simple" if args.profile else None,
         strategy="ddp_find_unused_parameters_true",
         accelerator="gpu",
@@ -187,7 +187,7 @@ if __name__ == "__main__":
     parser.add_argument("--total_steps", default=2_000, type=int)
     parser.add_argument("--warmup", default=5000, type=int)
     parser.add_argument("--max_steps", default=10_000_000, type=int)
-    parser.add_argument("--batch_size", default=16, type=int)
+    parser.add_argument("--batch_size", default=20, type=int)
     parser.add_argument("--accumulate_gradients", default=None, type=int)
     parser.add_argument("--num_workers", default=31, type=int)
     parser.add_argument("--save_every", default=100, type=int)

@@ -99,7 +99,7 @@ class CAMELS(VisionDataset):
         self,
     ) -> int:
         """Returns number of images in dataset"""
-        return len(self.x)
+        return min(len(self.x), len(self.y))
 
     def _load_images(self, suite: str, dataset: str, map_type: str = "Mtot") -> None:
         """Internal function to load images from CMD"""
@@ -159,7 +159,6 @@ class CAMELS(VisionDataset):
             params = params.iloc[idx_list].values
         else:
             params = params.values
-
         self.x = params.astype(np.float32)
 
     def __getitem__(
