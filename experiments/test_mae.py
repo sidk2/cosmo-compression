@@ -22,7 +22,7 @@ std = data.NORM_DICT["Mcdm"][256]["std"]
 cdm_dataset = data.CAMELS(
     idx_list=range(14000, 15000),
     map_type="Mcdm",
-    suite="Astrid",
+    suite="IllustrisTNG",
     dataset="LH",
     parameters=["Omega_m", "sigma_8", "A_SN1", "A_SN2", "A_AGN1", "A_AGN2", "Omega_b"],
 )
@@ -47,7 +47,7 @@ def compute_mean_mse(loader, model):
             imgs = imgs.to(device)
             # Encode, then decode
             latents = model.encoder(imgs)
-            preds = model.decoder.predict(x0=torch.randn_like(imgs), h=latents, n_sampling_steps=30)
+            preds = model.decoder.predict(x0=torch.randn_like(imgs), h=latents, n_sampling_steps=30, solver="rk4")
 
             # Move to CPU numpy
             imgs_np = imgs.cpu().numpy()
@@ -59,8 +59,9 @@ def compute_mean_mse(loader, model):
             mse_list.append(batch_mse)
 
     mse_all = np.concatenate(mse_list, axis=0)
-    return float(np.mean(mse_all))
+    return float(np.mean(mse_all)), np.std(mse_all)
 
+channels = [4, 8, 12, 16, 20, 64]
 
 # List of checkpoint paths to iterate over
 model_paths = [
@@ -73,13 +74,13 @@ model_paths = [
     # add more paths as needed...
 ]
 
-for ckpt in model_paths:
+for channels, ckpt in zip(channels, model_paths):
     # Load model
     print(f"Loading {ckpt}")
     model = represent.Represent.load_from_checkpoint(ckpt).to(device)
 
     # Compute mean MSE on CDM dataset
-    mean_mse = compute_mean_mse(cdm_loader, model)
+    mean_mse, std_mse = compute_mean_mse(cdm_loader, model)
 
     # Print only the mean MSE (one line per model)
-    print(f"{ckpt}  {mean_mse:.6f}")
+    print(f"Channels {channels}:  {mean_mse:.6f}, {std_mse:.6f}")

@@ -67,6 +67,7 @@ def compute_latents(fm, dataset, batch_size):
         imgs = imgs.cuda()
         with torch.no_grad():
             spatial = fm.encoder(imgs)
+            spatial[:, 2:, : , :] = 0 # Mask out low frequency
             vec = fm.decoder.velocity_model.fc(
                 fm.decoder.velocity_model.pool(spatial).squeeze()
             )
@@ -190,12 +191,12 @@ def main():
     cdm_params = ['Omega_m', 'sigma_8', 'A_SN1', 'A_SN2', 'A_AGN1', 'A_AGN2']
     wdm_params = ['Omega_m', 'sigma_8', 'A_SN1', 'A_AGN1', 'A_AGN2', 'WDM']
     cdm_ds = data.CAMELS(
-        idx_list=range(5000), parameters=cdm_params,
+        idx_list=range(14000), parameters=cdm_params,
         suite="IllustrisTNG", dataset="LH", map_type="Mcdm"
     )
     if args.wdm:
         wdm_ds = data.CAMELS(
-            idx_list=range(5000), parameters=wdm_params,
+            idx_list=range(14000), parameters=wdm_params,
             suite="IllustrisTNG", dataset="WDM", map_type="Mcdm"
         )
 
@@ -237,38 +238,39 @@ def main():
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
-    # def objective(trial):
-    #     lr = trial.suggest_loguniform('lr', 1e-6, 1e-1)
-    #     wd = trial.suggest_loguniform('weight_decay', 1e-8, 1e-2)
-    #     hidden_dim = trial.suggest_int('hidden', 1, 32)
+    def objective(trial):
+        lr = trial.suggest_loguniform('lr', 1e-6, 1e-1)
+        wd = trial.suggest_loguniform('weight_decay', 1e-8, 1e-2)
+        hidden_dim = trial.suggest_int('hidden_dim', 1, 2048)
+        hidden = trial.suggest_int('hidden', 1, 5)
 
-    #     model = ad.AnomalyDetectorImg(hidden=hidden_dim, dr=0.3, channels=1).to(device)
-    #     opt = optim.Adam(model.parameters(), lr=lr, weight_decay=wd)
-    #     loss_fn = nn.BCEWithLogitsLoss()
+        model = ad.AnomalyDetVec(hidden_dim=hidden_dim, num_hiddens=hidden, in_dim=X.shape[1], output_size=1).to(device)
+        opt = optim.Adam(model.parameters(), lr=lr, weight_decay=wd)
+        loss_fn = nn.BCEWithLogitsLoss()
 
-    #     for _ in range(20):
-    #         model.train()
-    #         for xb, yb in tr_loader:
-    #             xb, yb = xb.to(device), yb.to(device)
-    #             opt.zero_grad()
-    #             out = model(xb).squeeze()
-    #             l = loss_fn(out, yb)
-    #             l.backward()
-    #             opt.step()
-    #         model.eval()
-    #         vl = np.mean([loss_fn(model(xb.to(device)).squeeze(), yb.to(device)).item()
-    #                       for xb, yb in val_loader])
-    #     return vl
+        for _ in range(20):
+            model.train()
+            for xb, yb in tr_loader:
+                xb, yb = xb.to(device), yb.to(device)
+                opt.zero_grad()
+                out = model(xb).squeeze()
+                l = loss_fn(out, yb)
+                l.backward()
+                opt.step()
+            model.eval()
+            vl = np.mean([loss_fn(model(xb.to(device)).squeeze(), yb.to(device)).item()
+                          for xb, yb in val_loader])
+        return vl
 
-    # study = optuna.create_study(direction='minimize')
-    # study.optimize(objective, n_trials=30)
-    # best = study.best_params
+    study = optuna.create_study(direction='minimize')
+    study.optimize(objective, n_trials=30)
+    best = study.best_params
 
     # build and train model
     channels = X.shape[1] if mode == 'latents' else 1
-    model = ad.AnomalyDetectorImg(hidden=2, dr=0.3, channels=channels).to(device)
+    model = ad.AnomalyDetVec(num_hiddens=best['hidden'], hidden_dim=best['hidden_dim'], in_dim=channels, output_size=1).to(device)
     crit = nn.BCEWithLogitsLoss()
-    opt = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-4)
+    opt = optim.Adam(model.parameters(), lr=best['lr'], weight_decay=best['weight_decay'])
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(
         opt, T_max=args.epochs, eta_min=1e-7
     )

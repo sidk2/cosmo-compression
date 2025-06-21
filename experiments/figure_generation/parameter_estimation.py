@@ -1,70 +1,81 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import scienceplots
+import matplotlib.lines as mlines
 
 # Use the science style and set base font sizes
 plt.style.use("science")
 plt.rc("text", usetex=True)
 plt.rc("font", family="serif")
 plt.rcParams.update({
-    "font.size": 16,           # Base font size for labels, ticks, legend
-    "axes.titlesize": 20,      # Font size for the title
-    "axes.labelsize": 14,      # Font size for x/y labels
-    "xtick.labelsize": 12,     # Font size for x‐tick labels
-    "ytick.labelsize": 12,     # Font size for y‐tick labels
-    "legend.fontsize": 14      # Font size for legend
+    "font.size": 20,
+    "axes.titlesize": 20,
+    "axes.labelsize": 20,
+    "xtick.labelsize": 20,
+    "ytick.labelsize": 20,
+    "legend.fontsize": 20
 })
 
 # Data
 x = [4, 8, 12, 16, 20, 64]
-# omega_m_pct_error = np.array([0.1493, 0.0524, 0.0884, 0.0372, 0.0594, 0.0519]) * 100 # IllustrisTNG
-# sigma_8_pct_error = np.array([0.0491, 0.0403, 0.0353, 0.0316, 0.0319, 0.0375]) * 100 # IllustrisTNG
-omega_m_pct_error = np.array([0.1580, 0.0471, 0.0869, 0.0372, 0.0591, 0.0437]) * 100 # Astrid
-sigma_8_pct_error = np.array([0.0452, 0.0382, 0.0306, 0.0300, 0.0288, 0.0361]) * 100 # Astrid
-mse = [0.407358, 0.312346, 0.318532, 0.297846, 0.269314, 0.178118] # Astrid
 
-# Parameter Estimation network achieves 0.0818 for Omega_m, 0.0499 for sigma_8 on WDM without training
-# Achieves Omega_m: 0.0651, sigma_8: 0.0491 with training but no fine tuning
+# IllustrisTNG data
+# omega_m_pct_error = np.array([0.1398, 0.0519, 0.0858, 0.0405, 0.0577, 0.0427]) * 100
+# omega_m_stdev      = np.array([0.0475, 0.0387, 0.0790, 0.0312, 0.0462, 0.0329]) * 100 / np.sqrt(1000)
+# sigma_8_pct_error  = np.array([0.1253, 0.0424, 0.0359, 0.0339, 0.0326, 0.0410]) * 100 
+# sigma_8_stdev      = np.array([0.0377, 0.0344, 0.0284, 0.0271, 0.0266, 0.0321]) * 100 / np.sqrt(1000)
+# mse = []
+# mse_stdev = [] / np.sqrt(1000)
+# Astrid Data
+omega_m_pct_error = np.array([0.1626, 0.0556, 0.0914, 0.0397, 0.0581, 0.0412]) * 100
+omega_m_stdev      = np.array([0.1451, 0.0465, 0.0801, 0.0312, 0.0462, 0.0329]) * 100 / np.sqrt(1000)
+sigma_8_pct_error  = np.array([0.0453, 0.0377, 0.0325, 0.0300, 0.0291, 0.0372]) * 100 
+sigma_8_stdev      = np.array([0.0351, 0.0305, 0.0271, 0.0241, 0.0245, 0.0294]) * 100 / np.sqrt(1000)
+mse = [0.407433, 0.312505, 0.319278, 0.297564,  0.269318, 0.178145]
+mse_stdev = [0.072062,  0.058970, 0.061146,  0.057043,0.053485, 0.037183] / np.sqrt(1000)
 
-fig, ax1 = plt.subplots(figsize=(8, 6))
+fig, ax1 = plt.subplots(figsize=(7, 5))
 
-# Plot percent errors on the left y-axis
-lns1 = ax1.plot(
+# Plot percent errors with horizontal caps
+ax1.errorbar(
     x,
     omega_m_pct_error,
-    label=r"$\Omega_m$",
+    yerr=omega_m_stdev,
+    capsize=5,
     marker="o",
     color="C0"
 )
-lns2 = ax1.plot(
+ax1.errorbar(
     x,
     sigma_8_pct_error,
-    label=r"$\sigma_8$",
+    yerr=sigma_8_stdev,
+    capsize=5,
     marker="o",
     color="C1"
 )
 ax1.set_xlabel("Number of Channels")
-ax1.set_ylabel("Parameter Inference Percent Error")
-ax1.tick_params(axis="y")
+ax1.set_ylabel("Percent Error")
 
-# Create a second y-axis for MSE
+# Secondary axis for MSE
 ax2 = ax1.twinx()
-lns3 = ax2.plot(
+ax2.errorbar(
     x,
     mse,
-    label="MSE",
+    yerr=mse_stdev,
+    capsize=5,
     marker="s",
     linestyle="--",
     color="C2"
 )
 ax2.set_ylabel("MSE")
-ax2.tick_params(axis="y")
 
-# Combine legends from both axes
-lns = lns1 + lns2 + lns3
-labels = [l.get_label() for l in lns]
-ax1.legend(lns, labels, loc="upper right")
+# Create proxy artists for the legend
+proxy_om = mlines.Line2D([], [], color='C0', marker='o', linestyle='None', label=r"$\Omega_m$")
+proxy_s8 = mlines.Line2D([], [], color='C1', marker='o', linestyle='None', label=r"$\sigma_8$")
+proxy_mse = mlines.Line2D([], [], color='C2', marker='s', linestyle='--', label="MSE")
+
+ax1.legend(handles=[proxy_om, proxy_s8, proxy_mse], loc="upper right")
 
 plt.title("Percent Error and MSE vs Number of Channels")
 plt.tight_layout()
-plt.savefig("cosmo_compression/results/workshop_figures/parameter_estimation_with_mse.png")
+plt.savefig("cosmo_compression/results/workshop_figures/parameter_estimation_with_mse.pdf")

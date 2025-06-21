@@ -12,16 +12,16 @@ plt.style.use("science")
 plt.rc("text", usetex=True)
 plt.rc("font", family="serif")
 plt.rcParams.update({
-    "font.size": 16,           # Base font size for labels, ticks, legend
+    "font.size": 20,           # Base font size for labels, ticks, legend
     "axes.titlesize": 20,      # Font size for the title
-    "axes.labelsize": 14,      # Font size for x/y labels
-    "xtick.labelsize": 12,     # Font size for x‐tick labels
-    "ytick.labelsize": 12,     # Font size for y‐tick labels
+    "axes.labelsize": 20,      # Font size for x/y labels
+    "xtick.labelsize": 20,     # Font size for x‐tick labels
+    "ytick.labelsize": 20,     # Font size for y‐tick labels
     "legend.fontsize": 14      # Font size for legend
 })
 
 # Path to VAE data
-vae_data_path = "cosmo_compression/data/paper_data/vae_field_reconstruction_0529.npy"
+vae_data_path = "cosmo_compression/data/paper_data/vae_field_reconstruction_0602.npy"
 vae_output = np.load(vae_data_path)
 
 # Path to model
@@ -84,18 +84,18 @@ axs[0, 1].set_title("VAE Reconstruction")
 # Plot FM reconstruction on right
 axs[1, 0].imshow(x1)
 axs[1, 0].axis("off")
-axs[1, 0].set_title("FM Reconstruction")
+axs[1, 0].set_title("CosmoFlow Reconstruction")
 
 # Plot the power spectra of the reconstructions
 axs[1, 1].plot(orig_k, orig_pk, label="Original")
-axs[1, 1].plot(fm_k, fm_pk, label="FM")
+axs[1, 1].plot(fm_k, fm_pk, label="CosmoFlow")
 axs[1, 1].plot(vae_k, vae_pk, label="VAE")
 axs[1, 1].set_title("Power Spectra")
 axs[1, 1].set_xscale("log")
 axs[1, 1].set_yscale("log")
-axs[1, 1].set_xlabel("Wavenumber, k")
-axs[1, 1].set_ylabel("Power, P(k)")
+axs[1, 1].set_xlabel("Wavenumber, $k$ [h/Mpc]")
+axs[1, 1].set_ylabel("Power Spectrum [h/Mpc]$^2$")
 axs[1, 1].legend()
 
 plt.tight_layout()
-plt.savefig("cosmo_compression/results/workshop_figures/vae_comparison.png")
+plt.savefig("cosmo_compression/results/workshop_figures/vae_comparison.pdf")

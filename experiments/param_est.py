@@ -1,7 +1,8 @@
 import os
 import argparse
+import random
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -9,17 +10,45 @@ import optuna
 from scipy import stats as scistats
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 from torchvision import transforms as T
+import torchvision
 import tqdm
 
-from cosmo_compression.data import data
+from cosmo_compression.data import data as data
 from cosmo_compression.downstream import param_est_model as pe
 from cosmo_compression.model import represent
 
+class CNNProjector(nn.Module):
+    def __init__(self, backbone='resnet18', output_dim=128):
+        super(CNNProjector, self).__init__()
+
+        # Load a pretrained CNN backbone from torchvision
+        if backbone == 'resnet18':
+            self.backbone = torchvision.models.resnet18(pretrained=False)
+            self.backbone.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
+            num_feats = self.backbone.fc.out_features
+            print(f"Loaded ResNet18 with {num_feats} features")
+        else:
+            raise ValueError(f"Unsupported backbone: {backbone}")
+
+        # Projection to 128D
+        self.project_128 = nn.Linear(num_feats, output_dim)
+        self.dropout = nn.Dropout(p=0.3)
+        # Final projection to 2D
+        self.project_2d = nn.Linear(output_dim, 2)
+
+    def forward(self, x):
+        x = self.backbone(x)              # Output shape: (B, num_feats)
+        x = self.dropout(F.relu(self.project_128(x)))
+        x = self.project_2d(x)            # Output shape: (B, 2)
+        return x
+
 def pct_error_loss(y_pred, y_true):
     return torch.mean(torch.abs((y_true - y_pred) / y_true))
+
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -78,28 +107,32 @@ def main():
     train_data = data.CAMELS(
         idx_list=range(14000),
         parameters=param_list,
-        suite="Astrid" if not wdm else "IllustrisTNG",
+        suite="IllustrisTNG" if not wdm else "IllustrisTNG",
         dataset="WDM" if wdm else "LH",
         map_type="Mcdm"
     )
     val_data = data.CAMELS(
         idx_list=range(14000, 15000),
         parameters=param_list,
-        suite="Astrid" if not wdm else "IllustrisTNG",
+        suite="IllustrisTNG" if not wdm else "IllustrisTNG",
         dataset="WDM" if wdm else "LH",
         map_type="Mcdm"
     )
 
-    # 1) Load representer
+    # 1) Load representer (once)
+    fm = None
     if args.model_checkpoint is not None:
         fm = represent.Represent.load_from_checkpoint(args.model_checkpoint)
         fm.encoder = fm.encoder.to(device)
-        for p in fm.encoder.parameters(): p.requires_grad = False
+        for p in fm.encoder.parameters():
+            p.requires_grad = False
         fm.eval()
+    else:
+        ...
 
-    # 2) Helper to encode dataset
+    # 2) Helper to encode dataset (same for training and validation)
     def encode_dataset(dataset):
-        loader = DataLoader(dataset, batch_size=126, shuffle=False, num_workers=1, pin_memory=True)
+        loader = DataLoader(dataset, batch_size=126, shuffle=False, num_workers=5, pin_memory=True)
         features, labels = [], []
         with torch.no_grad():
             for imgs, cosmo in tqdm.tqdm(loader):
@@ -112,39 +145,42 @@ def main():
                         latent = tmp
                     feats = fm.decoder.velocity_model.pool(latent).squeeze()
                 else:
-                    feats = imgs
+                    feats = imgs.detach()
                 features.append(feats.cpu())
-                labels.append(cosmo[:,:2])
+                labels.append(cosmo[:, :2])  # only Omega_m and sigma_8
         return torch.cat(features), torch.cat(labels)
 
-    # 3) Encode both splits
+    # 3) Encode both splits once
     x_train, y_train = encode_dataset(train_data)
-    x_val,   y_val   = encode_dataset(val_data)
-        
+    x_val, y_val = encode_dataset(val_data)
 
-    # 4) **Compute per‐parameter mean/std on the training labels**
-    label_mean = y_train.mean(dim=0, keepdim=True)
-    label_std  = y_train.std(dim=0, keepdim=True)
-    # avoid division by zero
-    label_std[label_std == 0] = 1.0
+    # 4) Compute per‐parameter mean/std on the training labels (once)
+    # label_mean = y_train.mean(dim=0, keepdim=True)
+    # label_std = y_train.std(dim=0, keepdim=True)
+    # label_std[label_std == 0] = 1.0  # avoid division by zero
+    label_mean = torch.tensor([0.0, 0.0])
+    label_std = torch.tensor([1.0, 1.0])
 
-    # 5) **Normalize labels**
+    # 5) Normalize labels (once)
     y_train_n = (y_train - label_mean) / label_std
-    y_val_n   = (y_val   - label_mean) / label_std
+    y_val_n = (y_val - label_mean) / label_std
 
-    # Wrap into dataloaders
+    # Wrap into dataloaders (shuffle only during training)
     train_ds = TensorDataset(x_train, y_train_n)
-    val_ds   = TensorDataset(x_val,   y_val_n)
-    train_loader = DataLoader(train_ds, batch_size=512, shuffle=True)
-    val_loader   = DataLoader(val_ds,   batch_size=512, shuffle=False)
+    val_ds = TensorDataset(x_val, y_val_n)
 
-    # Optuna hyperparameter search
+    # 6) OPTUNA hyperparameter search (once)
     def objective(trial):
         lr = trial.suggest_loguniform('lr', 1e-6, 1e-1)
         wd = trial.suggest_loguniform('weight_decay', 1e-8, 1e-4)
-        hidden_dim = trial.suggest_int('hidden_dim', 1, 2048)
         hidden = trial.suggest_int('hidden', 1, 5)
-
+        
+        if use_latent:
+            hidden_dim = trial.suggest_int('hidden_dim', 1, 2048)
+        else:
+            hidden_dim = None
+        
+        # Build model according to “use_latent”
         if use_latent:
             model = pe.ParamEstVec(
                 hidden_dim=hidden_dim,
@@ -153,133 +189,176 @@ def main():
                 output_size=2
             ).to(device)
         else:
-            model = pe.ParamEstimatorImg(
-                hidden=hidden,
-                dr=0.1,
-                channels=1,
-                output_size=(1 if wdm else 2)
-            ).to(device)
+            model = CNNProjector().to(device)
 
-        opt = optim.Adam(model.parameters(), lr=lr, weight_decay=wd)
+        optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=wd)
         loss_fn = nn.MSELoss()
 
-        for _ in range(30):
+        # Fixed seed for Optuna objective
+        torch.manual_seed(0)
+        np.random.seed(0)
+
+        train_loader_local = DataLoader(train_ds, batch_size=64, shuffle=True, num_workers=8, pin_memory=True)
+        val_loader_local = DataLoader(val_ds, batch_size=64, shuffle=False, num_workers=8, pin_memory=True)
+
+        for _ in tqdm.tqdm(range(10)):
             model.train()
-            for xb, yb in train_loader:
+            for xb, yb in train_loader_local:
                 xb, yb = xb.to(device), yb.to(device)
-                opt.zero_grad()
+                optimizer.zero_grad()
                 out = model(xb)
-                l = loss_fn(out, yb)
-                l.backward()
-                opt.step()
+                loss = loss_fn(out, yb)
+                loss.backward()
+                optimizer.step()
 
             model.eval()
-            vl = np.mean([
-                loss_fn(model(xb.to(device)), yb.to(device)).item()
-                for xb, yb in val_loader
-            ])
+            val_losses = []
+            with torch.no_grad():
+                for xb, yb in val_loader_local:
+                    xb, yb = xb.to(device), yb.to(device)
+                    out = model(xb)
+                    val_losses.append(loss_fn(out, yb).item())
+            vl = np.mean(val_losses)
+
         return vl
 
+    # print("Starting hyperparameter search (Optuna)...")
     study = optuna.create_study(direction='minimize')
     study.optimize(objective, n_trials=30)
     best = study.best_params
-    print("Best hyperparameters:", best)
+    print("Best hyperparameters found:", best)
 
-    # Final training with best hyperparameters
+    # 7) Train a single model with the best hyperparameters
+    def init_weights(m):
+        if isinstance(m, nn.Linear):
+            nn.init.xavier_uniform_(m.weight)
+            m.bias.data.fill_(0.01)
+
+    # Instantiate the model once
     if use_latent:
         model = pe.ParamEstVec(
-            hidden_dim=250, num_hiddens=3,
-            in_dim=x_train.shape[1], output_size=2
+            hidden_dim=best['hidden_dim'],
+            num_hiddens=best['hidden'],
+            in_dim=x_train.shape[1],
+            output_size=2
         ).to(device)
+        model.apply(init_weights)
     else:
-        model = pe.ParamEstimatorImg(
-            hidden=best['hidden'], dr=0.1, channels=1,
-            output_size=(1 if wdm else 2)
-        ).to(device)
+        model = CNNProjector().to(device)
+        
+    lr         = 2e-4
+    eta_min    = lr/100
+    epochs     = 200
+    patience   = 20
 
-    opt   = optim.Adam(model.parameters(), lr=best['lr'], weight_decay=best['weight_decay'])
-    sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=500, eta_min=1e-7)
-    best_loss = float('inf')
-    
-    for epoch in range(200):
+    optimizer = torch.optim.AdamW(model.parameters(), lr=best['lr'], weight_decay=best['weight_decay'])
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer,T_max=epochs, 
+                                                       eta_min=eta_min, verbose=True)
+    best_val_loss = float('inf')
+    best_model_path = os.path.join(args.output_dir, 'best_model_single.pt')
+
+    train_loader = DataLoader(train_ds, batch_size=50, shuffle=True)
+    val_loader = DataLoader(val_ds, batch_size=50, shuffle=False)
+
+    epochs_since_improvement = 0
+    for epoch in range(epochs):
         model.train()
-        run_loss = 0.0
+        running_loss = 0.0
         for xb, yb in train_loader:
             xb, yb = xb.to(device), yb.to(device)
-            opt.zero_grad()
+            optimizer.zero_grad()
             out = model(xb)
-            l = nn.MSELoss()(out, yb)
-            l.backward()
-            opt.step()
-            run_loss += l.item()
+            loss = nn.MSELoss()(out, yb)
+            loss.backward()
+            optimizer.step()
+            running_loss += loss.item()
 
         model.eval()
-        val_loss = np.mean([
-            nn.MSELoss()(model(xb.to(device)), yb.to(device)).item()
-            for xb, yb in val_loader
-        ])
+        val_losses = []
+        with torch.no_grad():
+            for xb, yb in val_loader:
+                xb, yb = xb.to(device), yb.to(device)
+                out = model(xb)
+                val_losses.append(nn.MSELoss()(out, yb).item())
+        val_loss = np.mean(val_losses)
 
-        if val_loss < best_loss:
-            best_loss = val_loss
-            torch.save(model.state_dict(), os.path.join(args.output_dir, 'best_model.pt'))
+        # Save best checkpoint
+        if val_loss < best_val_loss:
+            epochs_since_improvement = 0
+            best_val_loss = val_loss
+            torch.save(model.state_dict(), best_model_path)
+        else:
+            epochs_since_improvement += 1
+            if epochs_since_improvement >= patience:
+                print(f"Early stopping at epoch {epoch+1}")
+                break
 
-        print(f"Epoch {epoch+1}: Train {run_loss/len(train_loader):.4f}, Val {val_loss:.4f}")
-        sched.step()
+        print(f"Epoch {epoch+1:3d} | Train Loss {running_loss/len(train_loader):.4f} | Val Loss {val_loss:.4f}")
 
-    # --- Evaluation & plotting (with de‐normalization) ---
-    model.load_state_dict(torch.load(os.path.join(args.output_dir, 'best_model.pt')))
+        scheduler.step()
+
+    # 8) Load best model and evaluate on validation set
+    model.load_state_dict(torch.load(best_model_path))
     model.eval()
 
-    # Collect normalized predictions & true
-    true_n, pred_n = [], []
+    true_n_list, pred_n_list = [], []
     with torch.no_grad():
         for xb, yb in val_loader:
             xb = xb.to(device)
             out = model(xb).cpu().numpy()
-            true_n.append(yb.numpy())
-            pred_n.append(out)
-    true_n = np.vstack(true_n)
-    pred_n = np.vstack(pred_n)
+            pred_n_list.append(out)
+            true_n_list.append(yb.numpy())
 
-    # 6) **De‐normalize**
+    true_n = np.vstack(true_n_list)  # shape (n_val, 2)
+    pred_n = np.vstack(pred_n_list)  # shape (n_val, 2)
+
+    # De‐normalize
     true = true_n * label_std.numpy() + label_mean.numpy()
     pred = pred_n * label_std.numpy() + label_mean.numpy()
 
-    plot_labels = ['Omega_m', 'sigma_8']
-    fig, axes = plt.subplots(1, len(plot_labels), figsize=(10, 5))
-    for i, name in enumerate(plot_labels):
-        ax = axes[i] if len(plot_labels)>1 else axes
-        x, y = true[:, i], pred[:, i]
-        ax.scatter(x, y, alpha=0.2)
-        slope, inter = np.polyfit(x, y, 1)
-        ax.plot(x, slope*x + inter, '-', label=f'y={slope:.2f}x')
-        ax.plot([x.min(), x.max()], [x.min(), x.max()], '--', label='y=x')
-        r = scistats.pearsonr(x, y)[0]
-        ax.set(
-            xlabel=f'True {name}', ylabel=f'Predicted {name}',
-            title=f'{name} (r={r:.2f})'
-        )
-        ax.legend()
-    plt.tight_layout()
-
-    # Save figure
-    fig_path = os.path.join(fig_dir, 'param_est_results.png')
-    plt.savefig(fig_path)
-    print(f"Saved evaluation figure at {fig_path}")
-
-    # 7) **Compute & save validation percent relative error**
+    # Compute percent‐relative‐error per sample and parameter
     rel_err = np.abs((true - pred) / true)
-    rel_err = np.where(true != 0, rel_err, np.nan)
-    per_param = np.nanmean(rel_err, axis=0)
-    overall   = np.nanmean(rel_err)
+    rel_err = np.where(true != 0, rel_err, np.nan)  # avoid division by zero
 
-    txt_path = os.path.join(fig_dir, 'parameter_estimation.txt')
-    with open(txt_path, 'a+') as f:
-        f.write(f"Validation Percent Relative Error (channel {args.channel})\n")
-        for name, err in zip(plot_labels, per_param):
-            f.write(f"{name}: {err:.4f}\n")
-        f.write(f"Overall: {overall:.4f}\n")
-    print(f"Saved validation percent relative error at {txt_path}")
+    # Compute mean and std of relative error over samples
+    mean_per_param = np.nanmean(rel_err, axis=0)   # [mean_Om, mean_sigma8]
+    std_per_param = np.nanstd(rel_err, axis=0)     # [std_Om, std_sigma8]
+    overall_mean = np.nanmean(rel_err)             # single scalar
+    overall_std = np.nanstd(rel_err)               # single scalar
+
+    # Compute quartiles (25th, 50th, 75th) for each parameter and overall
+    q25_per_param = np.nanpercentile(rel_err, 25, axis=0)
+    q50_per_param = np.nanpercentile(rel_err, 50, axis=0)
+    q75_per_param = np.nanpercentile(rel_err, 75, axis=0)
+
+    q25_overall = np.nanpercentile(rel_err, 25)
+    q50_overall = np.nanpercentile(rel_err, 50)
+    q75_overall = np.nanpercentile(rel_err, 75)
+
+    # Save summary (mean, std, and quartiles)
+    summary_txt = os.path.join(fig_dir, 'parameter_estimation_summary.txt')
+    with open(summary_txt, 'w') as f:
+        f.write("=== Summary (Single Model) ===\n")
+        for i, name in enumerate(['Omega_m', 'sigma_8']):
+            f.write(f"{name}: mean rel-error = {mean_per_param[i]:.4f}, "
+                    f"std = {std_per_param[i]:.4f}, "
+                    f"25th={q25_per_param[i]:.4f}, "
+                    f"median={q50_per_param[i]:.4f}, "
+                    f"75th={q75_per_param[i]:.4f}\n")
+        f.write(f"\nOverall percent‐relative‐error:\n")
+        f.write(f"  mean = {overall_mean:.4f}, std = {overall_std:.4f}\n")
+        f.write(f"  25th = {q25_overall:.4f}, median = {q50_overall:.4f}, 75th = {q75_overall:.4f}\n")
+    print(f"\nSaved summary (mean, std, quartiles) at {summary_txt}")
+
+    # Print to console
+    print("\n=== Mean ± Std Dev over validation samples ===")
+    for i, name in enumerate(['Omega_m', 'sigma_8']):
+        print(f"{name}: mean = {mean_per_param[i]:.4f}, std = {std_per_param[i]:.4f}, "
+              f"25th={q25_per_param[i]:.4f}, median={q50_per_param[i]:.4f}, 75th={q75_per_param[i]:.4f}")
+    print(f"Overall percent‐relative‐error: mean = {overall_mean:.4f}, std = {overall_std:.4f}")
+    print(f"  25th = {q25_overall:.4f}, median = {q50_overall:.4f}, 75th = {q75_overall:.4f}")
+
+    # End of main()
 
 
 if __name__ == '__main__':
