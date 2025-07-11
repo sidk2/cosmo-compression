@@ -155,19 +155,12 @@ def train(args):
         )
     else:
         # Build index lists for a small subset:
-        split_list = np.random.permutation(14000)
-        idx_train = split_list[: (args.train_size or 14000)]
-        idx_val = split_list[(args.train_size or 14000) : (args.train_size or 14000) + (args.val_size or 1000)]
-        # train_end = args.train_size if args.train_size else 14000
-        # val_end = (args.train_size or 14000) + (args.val_size or 1000)
-        # idx_train = range(train_end)
-        # idx_val = range(train_end, val_end)
-        # Now forward suite and data into our loader util:
+        
         train_loader, val_loader, n_train, n_val = get_camels_dataloaders(
             batch_size=args.batch_size,
             num_workers=args.num_workers,
-            idx_train=idx_train,
-            idx_val=idx_val,
+            idx_train=range(14000),
+            idx_val=range(14000, 15000),
             map_type="Mcdm",                # you could also switch this to "WDM" if that’s what you want
             parameters=["Omega_m", "sigma_8"],
             suite=args.camels_suite,
@@ -245,7 +238,7 @@ def train(args):
         # val_check_interval=args.eval_every,  # you can re-enable if you want more frequent val
         max_epochs=args.max_epochs,
         profiler="simple" if args.profile else None,
-        # strategy="ddp_find_unused_parameters_true",
+        strategy="ddp_find_unused_parameters_true",
         accelerator="gpu",
     )
 
@@ -324,13 +317,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "--train_size",
         type=int,
-        default=500,
+        default=14000,
         help="Number of training samples to use (e.g. 500 for quick fine‐tuning).",
     )
     parser.add_argument(
         "--val_size",
         type=int,
-        default=100,
+        default=1000,
         help="Number of validation samples to use.",
     )
 

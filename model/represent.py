@@ -11,6 +11,7 @@ import Pk_library as PKL
 from sklearn.manifold import TSNE
 import torch
 from torch import nn
+from torch.nn import functional as F
 import wandb
 
 from torchvision import transforms as T
@@ -49,13 +50,6 @@ def compute_pk(
         return pk.k3D, pk.Pk[:, 0]
 
 
-def get_2d_embeddings(
-    embeddings,
-):
-    tsne = TSNE(n_components=2, random_state=42)
-    return tsne.fit_transform(embeddings)
-
-
 def log_matplotlib_figure(figure_label: str):
     """log a matplotlib figure to wandb, avoiding plotly
 
@@ -86,22 +80,22 @@ class Represent(LightningModule):
         super().__init__()
         self.save_hyperparameters()
         self.unconditional = unconditional
-        self.log_wandb = log_wandb
-        self.latent_img_channels = latent_img_channels
+        self.log_wandb: bool = log_wandb
+        self.latent_img_channels: int = latent_img_channels
         self.encoder = self.initialize_encoder(in_channels=1)
         velocity_model = self.initialize_velocity()
         self.decoder = fm.FlowMatching(velocity_model, reverse=reverse)
         self.validation_step_outputs = []
 
-    def initialize_velocity(self) -> nn.Module:
+    def initialize_velocity(self, n_channels: int = 1, time_dim: int = 256) -> nn.Module:
         return unet.UNet(
-            n_channels=1,
-            time_dim=256,
-            latent_img_channels=self.latent_img_channels,
+            n_channels=n_channels,
+            time_dim=time_dim,
+            lat_img_ch=self.latent_img_channels,
         )
 
     def initialize_encoder(self, in_channels: int) -> nn.Module:
-        return resnet.ResNetEncoder(
+        return resnet.ResNet(
             in_channels=in_channels, latent_img_channels=self.latent_img_channels
         )
 
@@ -115,9 +109,12 @@ class Represent(LightningModule):
         t = torch.rand((y.shape[0]), device=y.device)
         h = self.encoder(y) if not self.unconditional else None
         x0 = torch.randn_like(y)
+        blurred_data, sharp_data = self.create_blurred_pairs(y, self.decoder.max_sigma)
+        
+        # Compute loss
         decoder_loss = self.decoder.compute_loss(
-            x0=x0,
-            x1=y,
+            x0=blurred_data,
+            x1=sharp_data,
             h=h,
             t=t,
         )
@@ -161,20 +158,9 @@ class Represent(LightningModule):
         h = self.encoder(y)
 
         if log:
-            
-            # fig, axs = plt.subplots(4, 4, figsize=(10, 10))
-            # for i in range(4):
-            #     for j in range(4):
-            #         axs[i, j].imshow(h[0, i * 4 + j, :, :].detach().cpu().numpy())
-            #         axs[i, j].set_title(f"Channel {i * 4 + j}")
-            #         axs[i, j].axis("off")
-
-            # plt.savefig("cosmo_compression/results/latents.png")
-            # log_matplotlib_figure("latent")
-            # plt.close()
-
 
             x0 = torch.randn_like(y)
+            x0 = self.decoder.gaussian_blur(x0, torch.tensor(self.decoder.max_sigma).repeat(x0.shape[0]))
             pred = self.decoder.predict(
                 x0,
                 h=h,
@@ -201,3 +187,39 @@ class Represent(LightningModule):
             "lr_scheduler": scheduler,
             "monitor": "val_loss",
         }
+    # Helper function to create blurred versions for training
+    def create_blurred_pairs(self, sharp_images: torch.Tensor, max_sigma: float = 5.0):
+        """Create (blurred, sharp) pairs for training."""
+        batch_size = sharp_images.shape[0]
+        device = sharp_images.device
+        
+        # Create different blur levels for each sample
+        sigmas = torch.rand(batch_size, device=device) * max_sigma
+        
+        blurred_images = []
+        for i in range(batch_size):
+            sigma = sigmas[i].item()
+            
+            # Create Gaussian kernel
+            kernel_size = int(2 * math.ceil(3 * sigma)) + 1
+            kernel_size = max(kernel_size, 3)
+            if kernel_size % 2 == 0:
+                kernel_size += 1
+                
+            coords = torch.arange(kernel_size, device=device, dtype=torch.float32)
+            coords = coords - kernel_size // 2
+            y_grid, x_grid = torch.meshgrid(coords, coords, indexing='ij')
+            
+            kernel = torch.exp(-(x_grid**2 + y_grid**2) / (2 * sigma**2))
+            kernel = kernel / kernel.sum()
+            
+            # Apply to image
+            img = sharp_images[i:i+1]
+            channels = img.shape[1]
+            kernel = kernel.unsqueeze(0).unsqueeze(0).repeat(channels, 1, 1, 1)
+            
+            padding = kernel_size // 2
+            blurred = F.conv2d(img, kernel, padding=padding, groups=channels)
+            blurred_images.append(blurred)
+        
+        return torch.cat(blurred_images, dim=0), sharp_images

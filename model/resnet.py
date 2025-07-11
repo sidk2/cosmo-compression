@@ -7,58 +7,6 @@ import torch.nn.functional as F
 
 import torchvision.transforms as T 
 
-# class ResnetBlock(nn.Module):
-#     """Basic building block for ResNet"""
-
-#     def __init__(self, in_channels: int, out_channels: int, stride: int):
-#         super(ResnetBlock, self).__init__()
-        
-#         self.convs = nn.ModuleList(
-#             [
-#                 nn.Conv2d(
-#                     in_channels=in_channels,
-#                     out_channels=out_channels,
-#                     kernel_size=3,
-#                     stride=stride,
-#                     padding=1,
-#                     padding_mode='circular',
-#                 ),
-#                 nn.Conv2d(
-#                     in_channels=out_channels,
-#                     out_channels=out_channels,
-#                     kernel_size=3,
-#                     stride=1,
-#                     padding=1,
-#                     padding_mode='circular',
-#                 ),
-#             ]
-#         )
-        
-#         self.batch_norms = nn.ModuleList(
-#             [
-#                 nn.BatchNorm2d(out_channels),
-#                 nn.BatchNorm2d(out_channels),
-#             ]
-#         )
-#         if stride != 1 or in_channels != out_channels:
-#             self.shortcut = nn.Sequential(
-#                 nn.Conv2d(
-#                     in_channels, out_channels, kernel_size=1, stride=stride, bias=False, padding_mode='circular',
-#                 ),
-#                 nn.BatchNorm2d(out_channels),
-#             )
-    
-#     def forward(self, x: torch.Tensor) -> torch.Tensor:
-#         """Forward pass"""
-        
-#         logits = self.convs[0](x)
-#         logits = self.batch_norms[0](logits)
-#         logits = F.relu(logits)
-#         logits = self.convs[1](logits)
-#         logits = self.batch_norms[1](logits)
-#         logits = F.relu(logits)
-#         return logits
-
 
 class ResnetBlock(nn.Module):
     """Basic building block for ResNet with residual connection"""
@@ -167,24 +115,3 @@ class ResNet(nn.Module):
         for i, layer in enumerate(self.resnet_layers):
             x = layer(x)
         return self.out_conv(x)
-    
-class ResNetEncoder(nn.Module):
-    """Residual convolutional network (ResNet 18 architecture)"""
-
-    def __init__(self, in_channels: int, latent_img_channels: int = 32, fc_out_dim: int = 14 * 9):
-        super(ResNetEncoder, self).__init__()
-        self.resnet_list = nn.ModuleList(
-            [
-                ResNet(in_channels=in_channels, latent_img_channels=latent_img_channels),
-            ]
-        )
-        
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Overloads forward method of nn.Module"""
-        spatial_list = []
-        for resnet in self.resnet_list:
-            spatial = resnet(x)
-            spatial_list.append(spatial)
-        
-        spatial_latent = torch.cat(spatial_list, dim=1)
-        return spatial_latent

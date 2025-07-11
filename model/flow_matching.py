@@ -3,6 +3,7 @@ from torch import nn
 import torch.autograd as autograd
 from torchdyn.core import NeuralODE
 from torchdiffeq import odeint
+from torch.nn import functional as F
 
 
 class ConditionedVelocityModel(nn.Module):
@@ -69,61 +70,130 @@ class ODEWithLogProb(nn.Module):
         dlogp = -div                                   # d/dt log p = –∇·v
         return v_t, dlogp
 
-
 class FlowMatching(nn.Module):
-    """Flow‐matching module with training loss and inference‐time log‐likelihood."""
-
+    """Flow-matching module using blurring instead of noise for forward process."""
+    
     def __init__(
         self,
         velocity_model: torch.nn.Module,
-        sigma: float = 0.0,
+        max_sigma: float = 255.0,  # Maximum blur sigma
+        min_sigma: float = 0.1,  # Minimum blur sigma
         reverse: bool = False,
     ):
         super().__init__()
         self.velocity_model = velocity_model
-        self.sigma = sigma
+        self.max_sigma = max_sigma
+        self.min_sigma = min_sigma
         self.reverse = reverse
+        
+    def get_sigma_t(self, t: torch.Tensor) -> torch.Tensor:
+        """Get blur sigma as a function of time t ∈ [0, 1]."""
+        # Linear interpolation from min_sigma to max_sigma
+        return self.min_sigma + t * (self.max_sigma - self.min_sigma)
+    
+    def gaussian_blur(self, x: torch.Tensor, sigma: torch.Tensor) -> torch.Tensor:
+        B, C, H, W = x.shape
+        device = x.device
 
+        # 1) Compute adaptive kernel sizes (odd) for each σ
+        ks = (2 * (4 * sigma).ceil().int() + 1)  # e.g. 8σ rule
+
+        # 2) Build one “giant” block‐diag kernel of shape (B*C, 1, Kmax, Kmax)
+        Kmax = ks.max().item()
+        coords = torch.arange(Kmax, device=device) - (Kmax // 2)
+        y, xg = torch.meshgrid(coords, coords, indexing='ij')
+        base = y**2 + xg**2
+
+        kernels = []
+        for σ, k in zip(sigma, ks):
+            σ = σ.item()
+            k = k.item()
+            # slice out the central k×k of the Kmax×Kmax grid:
+            start = (Kmax - k) // 2
+            sub = base[start:start+k, start:start+k]
+            kern = torch.exp(-sub / (2*σ*σ))
+            kern = F.pad(kern, [start]*4)      # pad back to Kmax
+            kern = kern / kern.sum()
+            kernels.append(kern)
+        # stack and repeat for channels
+        kernels = torch.stack(kernels)               # (B, Kmax, Kmax)
+        kernels = kernels.view(B, 1, Kmax, Kmax)
+        kernels = kernels.repeat_interleave(C, 0)    # (B*C,1,Kmax,Kmax)
+
+        # 3) reshape input to (B*C,1,H,W) and apply one conv
+        x_ = x.reshape(1, B*C, H, W)
+        out = F.conv2d(x_, kernels, padding=Kmax//2, groups=B*C)
+        return out.view(B, C, H, W)
+    
     def get_mu_t(self, x0: torch.Tensor, x1: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+        """Get mean of interpolation between x0 and x1."""
         return t * x1 + (1 - t) * x0
-
-    def get_gamma_t(self, t: torch.Tensor) -> torch.Tensor:
-        return torch.sqrt(2 * t * (1 - t))
-
+    
     def sample_xt(
-        self, x0: torch.Tensor, x1: torch.Tensor, t: torch.Tensor, eps: torch.Tensor | None
+        self, 
+        x0: torch.Tensor, 
+        x1: torch.Tensor, 
+        t: torch.Tensor
     ) -> torch.Tensor:
-        t_broadcast = t.view(t.shape[0], *([1] * (x0.dim() - 1)))
-        mu_t = self.get_mu_t(x0, x1, t_broadcast)
-        if self.sigma != 0.0:
-            sigma_t = self.get_gamma_t(t_broadcast)
-            return mu_t + sigma_t * eps
-        return mu_t
-
+        """Sample x_t by applying progressive blurring."""
+        # For cold diffusion, we blur x1 (the target) towards x0 (fully blurred)
+        # At t=0: we want x1 (sharp)
+        # At t=1: we want x0 (blurred)
+        
+        # Get blur sigma for this timestep
+        t_broadcast = t.view(t.shape[0], *([1] * (x1.dim() - 1)))
+        sigma_t = self.get_sigma_t(t_broadcast.squeeze())
+        
+        # Apply blur to x1
+        x1_blurred = self.gaussian_blur(x1, sigma_t)
+        
+        # Interpolate between sharp x1 and blurred version
+        # At t=0: return x1 (sharp)
+        # At t=1: return heavily blurred version
+        return self.get_mu_t(x1, x1_blurred, t_broadcast)
+    
     def compute_loss(
         self,
-        x0: torch.Tensor,
-        x1: torch.Tensor,
+        x0: torch.Tensor,  # This will be the "fully blurred" version
+        x1: torch.Tensor,  # This is the sharp target
         h: torch.Tensor | None = None,
         t: torch.Tensor | None = None,
     ) -> torch.Tensor:
+        """Compute flow matching loss with blurring."""
         if t is None:
             t = torch.rand(x0.shape[0], device=x0.device).type_as(x0)
-
-        eps = torch.randn_like(x0) if self.sigma != 0.0 else None
-        xt = self.sample_xt(x0, x1, t, eps)
-        ut = x1 - x0
+        
+        # Sample x_t using blurring
+        xt = self.sample_xt(x0, x1, t)
+        
+        # The target velocity should point from blurred to sharp
+        ut = x1 - xt  # This is the "deblurring direction"
+        
+        # Predict velocity
         vt = self.velocity_model(xt, t=t, z=h)
-        return torch.mean((vt - ut) ** 2)
-
+        
+        # Compute loss
+        loss = torch.mean((vt - ut) ** 2)
+        
+        # Optional: Add frequency-weighted loss
+        if hasattr(self, 'freq_weight') and self.freq_weight > 0:
+            # Compute high-frequency loss
+            grad_pred = torch.gradient(vt.view(vt.shape[0], -1), dim=1)[0]
+            grad_target = torch.gradient(ut.view(ut.shape[0], -1), dim=1)[0]
+            freq_loss = torch.mean((grad_pred - grad_target) ** 2)
+            loss = loss + self.freq_weight * freq_loss
+        
+        return loss
+    
     def predict(
         self,
-        x0: torch.Tensor,
+        x0: torch.Tensor,  # Starting point (blurred)
         h: torch.Tensor | None = None,
         n_sampling_steps: int = 100,
         solver: str = "dopri5",
         full_return: bool = False,
     ) -> torch.Tensor:
+        """Predict by running the ODE from blurred to sharp."""
         conditional_velocity_model = ConditionedVelocityModel(
             velocity_model=self.velocity_model, h=h, reverse=self.reverse
         )
@@ -154,6 +224,7 @@ class FlowMatching(nn.Module):
         Returns a 1D tensor of shape (batch_size,) containing log p_T(x_T) for each sample.
         """
         x_T = x_T.clone().detach().requires_grad_()
+        
         # Wrap the trained velocity_model into a reverse‐flagged conditioned model
         cond_vel_model = ConditionedVelocityModel(
             velocity_model=self.velocity_model, h=h, reverse=True
