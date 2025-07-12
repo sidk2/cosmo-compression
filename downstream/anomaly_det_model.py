@@ -1,7 +1,8 @@
 import torch
 import torch.nn as nn
 
-# Define the CNN classifier
+# CNN for WDM anomaly detection on the raw fields
+# Adapted from: https://camels-multifield-dataset.readthedocs.io/en/latest/inference.html
 class AnomalyDetectorImg(nn.Module):
     def __init__(self, hidden, dr, channels):
         super(AnomalyDetectorImg, self).__init__()
@@ -127,7 +128,8 @@ class AnomalyDetectorImg(nn.Module):
         x = self.FC2(x)
 
         return x
-    
+
+# Model for anomaly detection on compressed field
 class AnomalyDetectorLatent(nn.Module):
     def __init__(self, hidden, dr, channels):
         super().__init__()
@@ -178,6 +180,7 @@ class AnomalyDetectorLatent(nn.Module):
         x = self.fc2(x)
         return x
 
+# Model for anomaly detection on the summary statistics
 class AnomalyDetVec(nn.Module):
     def __init__(self, hidden_dim, num_hiddens, in_dim, output_size):
         super(AnomalyDetVec, self).__init__()
@@ -197,4 +200,3 @@ class AnomalyDetVec(nn.Module):
             x = self.LeakyReLU(hidden(x))
         x = self.out_transform(x)
         return x
-    

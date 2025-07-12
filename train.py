@@ -1,8 +1,4 @@
 import os
-# make sure to pick whichever GPUs you actually have available
-os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3,4,5"
-# your HF cache remains the same
-os.environ["HF_HOME"] = "../../../monolith/global_data/astro_compression/"
 
 import numpy as np
 from pathlib import Path
@@ -11,64 +7,16 @@ from argparse import ArgumentParser
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from torchvision import transforms
-from datasets import load_dataset
 
 from lightning.pytorch import seed_everything, Trainer
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.callbacks import ModelCheckpoint, LearningRateMonitor
-from lightning.pytorch.callbacks import EarlyStopping
 
 from cosmo_compression.model import represent
 from cosmo_compression.data import data
 
 torch.cuda.empty_cache()
 torch.set_float32_matmul_precision('medium')
-
-
-def get_celeba_dataloaders(
-    root, batch_size, num_workers, transforms_cfg, train_size=None, val_size=None
-):
-    # (unchanged from before)
-    ds = load_dataset("flwrlabs/celeba", cache_dir=root)
-    if train_size:
-        ds["train"] = ds["train"].select(range(min(train_size, len(ds["train"]))))
-    if val_size:
-        ds["valid"] = ds["valid"].select(range(min(val_size, len(ds["valid"]))))
-    def preprocess(batch):
-        images = [transforms.Compose(transforms_cfg)(img.convert("RGB")) for img in batch["image"]]
-        return {"pixel_values": images}
-    ds = ds.map(
-        preprocess,
-        batched=True,
-        remove_columns=ds["train"].column_names,
-        batch_size=32,
-    )
-    ds.set_format(type="torch", columns=["pixel_values"])
-    train_loader = DataLoader(
-        ds["train"],
-        batch_size=batch_size,
-        shuffle=True,
-        num_workers=num_workers,
-        pin_memory=True,
-        collate_fn=lambda batch: (
-            torch.stack([x["pixel_values"] for x in batch]),
-            torch.zeros(len(batch), dtype=torch.long),
-        ),
-    )
-    valid_loader = DataLoader(
-        ds["valid"],
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=num_workers,
-        pin_memory=True,
-        collate_fn=lambda batch: (
-            torch.stack([x["pixel_values"] for x in batch]),
-            torch.zeros(len(batch), dtype=torch.long),
-        ),
-    )
-    return train_loader, valid_loader, len(ds["train"]), len(ds["valid"])
-
 
 def get_camels_dataloaders(
     batch_size,
@@ -79,12 +27,14 @@ def get_camels_dataloaders(
     parameters,
     suite,
     camels_data,
+    root,
 ):
     """
     Now we explicitly forward `suite` and `camels_data` (i.e. 'WDM') into data.CAMELS.
     """
     print(f"Using {len(idx_train)} training points and {len(idx_val)} validation points.")
     train_data = data.CAMELS(
+        root = root,
         idx_list=idx_train,
         map_type=map_type,         # e.g. 'Mcdm' or 'WDM'
         parameters=parameters,     # e.g. ['Omega_m', 'sigma_8']
@@ -92,6 +42,7 @@ def get_camels_dataloaders(
         dataset=camels_data,          # e.g. 'WDM'
     )
     val_data = data.CAMELS(
+        root=root,
         idx_list=idx_val,
         map_type=map_type,
         parameters=parameters,
@@ -135,80 +86,33 @@ def train(args):
     else:
         print("🔸 Running without Weights & Biases logger.")
 
-    # ------------------------
-    # 3) Decide which dataset we’re using
-    # ------------------------
-    if args.dataset == "celeba":
-        celeba_transforms = [
-            transforms.Resize((256, 256)),
-            transforms.CenterCrop(256),
-            transforms.ToTensor(),
-            transforms.Normalize([0.5] * 3, [0.5] * 3),
-        ]
-        train_loader, val_loader, n_train, n_val = get_celeba_dataloaders(
-            root=args.celeba_root,
-            batch_size=args.batch_size,
-            num_workers=args.num_workers,
-            transforms_cfg=celeba_transforms,
-            train_size=args.train_size,
-            val_size=args.val_size,
-        )
-    else:
-        # Build index lists for a small subset:
-        split_list = np.random.permutation(14000)
-        idx_train = split_list[: (args.train_size or 14000)]
-        idx_val = split_list[(args.train_size or 14000) : (args.train_size or 14000) + (args.val_size or 1000)]
-        # train_end = args.train_size if args.train_size else 14000
-        # val_end = (args.train_size or 14000) + (args.val_size or 1000)
-        # idx_train = range(train_end)
-        # idx_val = range(train_end, val_end)
-        # Now forward suite and data into our loader util:
-        train_loader, val_loader, n_train, n_val = get_camels_dataloaders(
-            batch_size=args.batch_size,
-            num_workers=args.num_workers,
-            idx_train=idx_train,
-            idx_val=idx_val,
-            map_type="Mcdm",                # you could also switch this to "WDM" if that’s what you want
-            parameters=["Omega_m", "sigma_8"],
-            suite=args.camels_suite,
-            camels_data=args.camels_data,
-        )
 
-    print(
-        f"▶️ Using {n_train} training samples and {n_val} validation samples from {args.dataset} (suite={getattr(args, 'camels_suite', 'N/A')}, data={getattr(args, 'camels_data', 'N/A')})."
+    train_end = args.train_size
+    val_end = args.train_size + args.val_size
+    idx_train = range(train_end)
+    idx_val = range(train_end, val_end)
+    
+    # Now forward suite and data into our loader util:
+    train_loader, val_loader, n_train, n_val = get_camels_dataloaders(
+        batch_size=args.batch_size,
+        num_workers=args.num_workers,
+        idx_train=idx_train,
+        idx_val=idx_val,
+        map_type="Mcdm",                # you could also switch this to "WDM" if that’s what you want
+        parameters=["Omega_m", "sigma_8"],
+        suite=args.camels_suite,
+        camels_data=args.camels_data,
+        root=args.root,
     )
 
-    # ------------------------
-    # 4) Model + checkpointing
-    # ------------------------
-    # If a pretrained checkpoint is given, load it via Lightning’s load_from_checkpoint.
-    if args.pretrained_ckpt:
-        print(f"🔄 Loading pretrained weights from {args.pretrained_ckpt} …")
-        fm = represent.Represent.load_from_checkpoint(args.pretrained_ckpt,
-                                                     log_wandb=args.use_wandb,
-                                                     latent_img_channels=args.latent_img_channels)
-        
-        # Freeze the encoder, and most of the decoder
-        # for param in fm.encoder.parameters():
-        #     param.requires_grad = False
-        for param in fm.decoder.parameters():
-            param.requires_grad = False
-        for param in fm.decoder.velocity_model.parameters():
-            param.requires_grad = False
-            
-        # for param in fm.encoder.resnet_list[0].resnet_layers[-1].parameters():
-        #     param.requires_grad = True
-        # for param in fm.encoder.resnet_list[0].out_conv.parameters():
-        #     param.requires_grad = True
-        for param in fm.decoder.velocity_model.pool.parameters():
-            param.requires_grad = True
-            
-    else:
-        # fresh new model if no checkpoint provided
-        fm = represent.Represent(
-            log_wandb=args.use_wandb,
-            latent_img_channels=args.latent_img_channels,
-        )
+    print(
+        f"Using {n_train} training samples and {n_val} validation samples (suite={getattr(args, 'camels_suite', 'N/A')}, data={getattr(args, 'camels_data', 'N/A')})."
+    )
+
+    fm = represent.Represent(
+        log_wandb=args.use_wandb,
+        latent_img_channels=args.latent_img_channels,
+    )
     # re‐initialize (re‐apply) weight init if you want—optional:
     def init_weights(m):
         if isinstance(m, nn.Linear):
@@ -266,25 +170,12 @@ if __name__ == "__main__":
     parser.add_argument(
         "--output_dir", default="", help="output directory for checkpoints etc."
     )
+    parser.add_argument("--root", type=str, required=True, help="dataset directory")
     parser.add_argument(
         "--run_name",
         default="finetuning",
         type=str,
         help="WandB run name (if using wandb).",
-    )
-
-    # ── Which dataset? ───────────────────────────────────────
-    parser.add_argument(
-        "--dataset",
-        choices=["camels", "celeba"],
-        default="camels",
-        help="Which dataset to use: 'celeba' or 'camels'",
-    )
-    parser.add_argument(
-        "--celeba_root",
-        type=str,
-        default="../../../monolith/global_data/astro_compression/",
-        help="Root directory for CelebA HF mirror",
     )
 
     # ── CAMELS‐specific arguments ────────────────────────────
@@ -299,14 +190,6 @@ if __name__ == "__main__":
         type=str,
         default="LH",
         help="Which CAMELS data/map type to load (e.g. WDM, Mcdm, etc.)",
-    )
-
-    # ── Fine‐tuning arguments ───────────────────────────────
-    parser.add_argument(
-        "--pretrained_ckpt",
-        type=str,
-        default=None,
-        help="If set, path to a .ckpt file to load for fine‐tuning",
     )
 
     # ── Optimization hyperparameters ────────────────────────
@@ -324,13 +207,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "--train_size",
         type=int,
-        default=500,
+        required=True,
         help="Number of training samples to use (e.g. 500 for quick fine‐tuning).",
     )
     parser.add_argument(
         "--val_size",
         type=int,
-        default=100,
+        required=True,
         help="Number of validation samples to use.",
     )
 

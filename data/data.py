@@ -50,7 +50,7 @@ NORM_DICT = {
 class CAMELS(VisionDataset):
     def __init__(
         self,
-        root: str = "../../monolith/global_data/astro_compression/CAMELS",
+        root: str,
         redshift: float = 0.0,
         transform: Optional[Callable] = None,
         parameters=[

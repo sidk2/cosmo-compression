@@ -21,31 +21,6 @@ from cosmo_compression.data import data as data
 from cosmo_compression.downstream import param_est_model as pe
 from cosmo_compression.model import represent
 
-class CNNProjector(nn.Module):
-    def __init__(self, backbone='resnet18', output_dim=128):
-        super(CNNProjector, self).__init__()
-
-        # Load a pretrained CNN backbone from torchvision
-        if backbone == 'resnet18':
-            self.backbone = torchvision.models.resnet18(pretrained=False)
-            self.backbone.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
-            num_feats = self.backbone.fc.out_features
-            print(f"Loaded ResNet18 with {num_feats} features")
-        else:
-            raise ValueError(f"Unsupported backbone: {backbone}")
-
-        # Projection to 128D
-        self.project_128 = nn.Linear(num_feats, output_dim)
-        self.dropout = nn.Dropout(p=0.3)
-        # Final projection to 2D
-        self.project_2d = nn.Linear(output_dim, 2)
-
-    def forward(self, x):
-        x = self.backbone(x)              # Output shape: (B, num_feats)
-        x = self.dropout(F.relu(self.project_128(x)))
-        x = self.project_2d(x)            # Output shape: (B, 2)
-        return x
-
 def pct_error_loss(y_pred, y_true):
     return torch.mean(torch.abs((y_true - y_pred) / y_true))
 
