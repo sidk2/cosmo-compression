@@ -1,8 +1,0 @@
-Using 14000 training points and 1000 validation points.
-Using 14000 training samples and 1000 validation samples (suite=Astrid, data=LH).
-Traceback (most recent call last):
-  File "/home/sid/cosmo_compression/src/cosmo_compression/train.py", line 228, in <module>
-    train(args)
-  File "/home/sid/cosmo_compression/src/cosmo_compression/train.py", line 121, in train
-    if not args.pretrained_ckpt:
-AttributeError: 'Namespace' object has no attribute 'pretrained_ckpt'
