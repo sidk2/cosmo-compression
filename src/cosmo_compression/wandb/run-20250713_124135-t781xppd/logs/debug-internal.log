@@ -1,0 +1,15 @@
+{"time":"2025-07-13T12:41:35.750177154-07:00","level":"INFO","msg":"stream: starting","core version":"0.19.9","symlink path":"wandb/run-20250713_124135-t781xppd/logs/debug-core.log"}
+{"time":"2025-07-13T12:41:35.95825489-07:00","level":"INFO","msg":"created new stream","id":"t781xppd"}
+{"time":"2025-07-13T12:41:35.958320081-07:00","level":"INFO","msg":"stream: started","id":"t781xppd"}
+{"time":"2025-07-13T12:41:35.958378673-07:00","level":"INFO","msg":"writer: Do: started","stream_id":"t781xppd"}
+{"time":"2025-07-13T12:41:35.958409823-07:00","level":"INFO","msg":"handler: started","stream_id":"t781xppd"}
+{"time":"2025-07-13T12:41:35.958473284-07:00","level":"INFO","msg":"sender: started","stream_id":"t781xppd"}
+{"time":"2025-07-13T12:41:36.264634537-07:00","level":"INFO","msg":"Starting system monitor"}
+{"time":"2025-07-13T12:41:39.579515297-07:00","level":"INFO","msg":"stream: closing","id":"t781xppd"}
+{"time":"2025-07-13T12:41:39.579539767-07:00","level":"INFO","msg":"Stopping system monitor"}
+{"time":"2025-07-13T12:41:39.579615209-07:00","level":"INFO","msg":"Stopped system monitor"}
+{"time":"2025-07-13T12:41:40.02042804-07:00","level":"INFO","msg":"fileTransfer: Close: file transfer manager closed"}
+{"time":"2025-07-13T12:41:40.156891152-07:00","level":"INFO","msg":"handler: closed","stream_id":"t781xppd"}
+{"time":"2025-07-13T12:41:40.156940983-07:00","level":"INFO","msg":"writer: Close: closed","stream_id":"t781xppd"}
+{"time":"2025-07-13T12:41:40.156977244-07:00","level":"INFO","msg":"sender: closed","stream_id":"t781xppd"}
+{"time":"2025-07-13T12:41:40.157099386-07:00","level":"INFO","msg":"stream: closed","id":"t781xppd"}

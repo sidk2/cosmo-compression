@@ -1,0 +1,29 @@
+Using 14000 training points and 1000 validation points.
+Using 14000 training samples and 1000 validation samples (suite=Astrid, data=LH).
+GPU available: True (cuda), used: True
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+Initializing distributed: GLOBAL_RANK: 0, MEMBER: 1/6
+----------------------------------------------------------------------------------------------------
+distributed_backend=nccl
+All distributed processes registered. Starting with 6 processes
+----------------------------------------------------------------------------------------------------
+
+LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0,1,2,3,4,5]
+
+  | Name    | Type          | Params | Mode
+--------------------------------------------------
+0 | encoder | ResNetEncoder | 2.9 M  | train
+1 | decoder | FlowMatching  | 52.9 M | train
+--------------------------------------------------
+55.8 M    Trainable params
+0         Non-trainable params
+55.8 M    Total params
+223.143   Total estimated model params size (MB)
+543       Modules in train mode
+0         Modules in eval mode
+Epoch 5:   8%|▌       | 22/292 [00:17<03:30,  1.28it/s, v_num=esxq, train_loss=0.425, val_loss=0.423]
+/home/sid/.local/lib/python3.10/site-packages/lightning/pytorch/callbacks/model_checkpoint.py:384: `ModelCheckpoint(monitor='val_loss')` could not find the monitored key in the returned metrics: ['train_loss', 'lr-AdamW', 'epoch', 'step']. HINT: Did you call `log('val_loss', value)` in the `LightningModule`?
+                                                                                                     
+
+Detected KeyboardInterrupt, attempting graceful shutdown ...

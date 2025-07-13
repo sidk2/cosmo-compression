@@ -95,7 +95,6 @@ class CosmoFlow(LightningModule):
             self._log_figures(batch)
 
         self.validation_step_outputs.clear()
-        # Note: optimizer.step() is intentionally called here as well
         self.optimizers().step()
 
     @utilities.rank_zero_only

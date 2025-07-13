@@ -109,17 +109,17 @@ def train(args):
         f"Using {n_train} training samples and {n_val} validation samples (suite={getattr(args, 'camels_suite', 'N/A')}, data={getattr(args, 'camels_data', 'N/A')})."
     )
 
-    fm = represent.Represent(
+    fm = represent.CosmoFlow(
         log_wandb=args.use_wandb,
         latent_img_channels=args.latent_img_channels,
     )
-    # re‐initialize (re‐apply) weight init if you want—optional:
+
     def init_weights(m):
         if isinstance(m, nn.Linear):
             nn.init.kaiming_normal_(m.weight, a=0, mode="fan_in", nonlinearity="relu")
             m.bias.data.fill_(0.01)
-    if not args.pretrained_ckpt:
-        fm.apply(init_weights)
+    
+    fm.apply(init_weights)
     fm.train()
 
     # Checkpoints: keep the best on val_loss and always save last,
@@ -145,11 +145,10 @@ def train(args):
         accumulate_grad_batches=args.accumulate_gradients or 1,
         callbacks=[checkpoint_callback, lr_monitor],
         devices=args.gpus,
-        check_val_every_n_epoch=1,
-        # val_check_interval=args.eval_every,  # you can re-enable if you want more frequent val
+        val_check_interval=args.eval_every,
         max_epochs=args.max_epochs,
         profiler="simple" if args.profile else None,
-        # strategy="ddp_find_unused_parameters_true",
+        strategy="ddp_find_unused_parameters_true",
         accelerator="gpu",
     )
 

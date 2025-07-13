@@ -1,0 +1,25 @@
+2025-07-13 13:10:49,349 INFO    MainThread:3820432 [wandb_setup.py:_flush():67] Current SDK version is 0.19.9
+2025-07-13 13:10:49,349 INFO    MainThread:3820432 [wandb_setup.py:_flush():67] Configure stats pid to 3820432
+2025-07-13 13:10:49,349 INFO    MainThread:3820432 [wandb_setup.py:_flush():67] Loading settings from /home/sid/.config/wandb/settings
+2025-07-13 13:10:49,349 INFO    MainThread:3820432 [wandb_setup.py:_flush():67] Loading settings from /home/sid/cosmo_compression/src/cosmo_compression/wandb/settings
+2025-07-13 13:10:49,349 INFO    MainThread:3820432 [wandb_setup.py:_flush():67] Loading settings from environment variables
+2025-07-13 13:10:49,349 INFO    MainThread:3820432 [wandb_init.py:setup_run_log_directory():662] Logging user logs to ./wandb/run-20250713_131049-qm0dpcu4/logs/debug.log
+2025-07-13 13:10:49,349 INFO    MainThread:3820432 [wandb_init.py:setup_run_log_directory():663] Logging internal logs to ./wandb/run-20250713_131049-qm0dpcu4/logs/debug-internal.log
+2025-07-13 13:10:49,349 INFO    MainThread:3820432 [wandb_init.py:init():781] calling init triggers
+2025-07-13 13:10:49,349 INFO    MainThread:3820432 [wandb_init.py:init():786] wandb.init called with sweep_config: {}
+config: {'_wandb': {}}
+2025-07-13 13:10:49,349 INFO    MainThread:3820432 [wandb_init.py:init():809] starting backend
+2025-07-13 13:10:49,349 INFO    MainThread:3820432 [wandb_init.py:init():813] sending inform_init request
+2025-07-13 13:10:49,353 INFO    MainThread:3820432 [backend.py:_multiprocessing_setup():101] multiprocessing start_methods=fork,spawn,forkserver, using: spawn
+2025-07-13 13:10:49,353 INFO    MainThread:3820432 [wandb_init.py:init():823] backend started and connected
+2025-07-13 13:10:49,355 INFO    MainThread:3820432 [wandb_init.py:init():915] updated telemetry
+2025-07-13 13:10:49,361 INFO    MainThread:3820432 [wandb_init.py:init():939] communicating run to backend with 90.0 second timeout
+2025-07-13 13:10:49,853 INFO    MainThread:3820432 [wandb_init.py:init():1014] starting run threads in backend
+2025-07-13 13:10:49,975 INFO    MainThread:3820432 [wandb_run.py:_console_start():2454] atexit reg
+2025-07-13 13:10:49,975 INFO    MainThread:3820432 [wandb_run.py:_redirect():2306] redirect: wrap_raw
+2025-07-13 13:10:49,975 INFO    MainThread:3820432 [wandb_run.py:_redirect():2371] Wrapping output streams.
+2025-07-13 13:10:49,975 INFO    MainThread:3820432 [wandb_run.py:_redirect():2394] Redirects installed.
+2025-07-13 13:10:49,977 INFO    MainThread:3820432 [wandb_init.py:init():1056] run started, returning control to user process
+2025-07-13 13:10:49,977 INFO    MainThread:3820432 [wandb_run.py:_config_callback():1327] config_cb None None {'output_dir': '', 'root': '/monolith/global_data/astro_compression/CAMELS', 'run_name': 'final_test', 'camels_suite': 'Astrid', 'camels_data': 'LH', 'learning_rate': 5e-05, 'grad_clip': 1.0, 'batch_size': 16, 'accumulate_gradients': None, 'num_workers': 4, 'save_every': 50, 'eval_every': 50, 'latent_dim': 256, 'latent_img_channels': 8, 'train_size': 14000, 'val_size': 1000, 'max_steps': 2000, 'max_epochs': 100, 'profile': False, 'gpus': 6, 'use_wandb': True}
+2025-07-13 13:11:18,719 INFO    MainThread:3820432 [wandb_run.py:_config_callback():1327] config_cb None None {'unconditional': False, 'log_wandb': True, 'reverse': False, 'latent_img_channels': 8}
+2025-07-13 13:17:17,995 INFO    MsgRouterThr:3820432 [mailbox.py:close():129] [no run ID] Closing mailbox, abandoning 1 handles.
