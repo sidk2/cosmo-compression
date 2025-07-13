@@ -10,3 +10,19 @@ version = "0.0.0"                        # any placeholder string is fine
 
 [tool.setuptools]
 package-dir = {"" = "src"}               # <-- only extra line for the src layout
+
+dependencies = [
+  "lightning==2.5.1",
+  "matplotlib==3.10.3",
+  "numpy==2.3.1",
+  "optuna==4.3.0",
+  "pandas==2.3.1",
+  "Pillow==11.3.0",
+  "torch==2.6.0",
+  "torchdiffeq==0.2.5",
+  "torchdyn==1.0.6",
+  "torchio==0.20.18",
+  "torchvision==0.21.0",
+  "tqdm==4.67.1",
+  "wandb==0.21.0",
+]
