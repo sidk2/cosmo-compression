@@ -5,4 +5,5 @@ __pycache__
 *.gif
 *.pth
 *.pt
-results
+src/cosmo_compression/results/*
+src/cosmo_compression.egg-info/*

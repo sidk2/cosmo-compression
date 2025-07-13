@@ -1,0 +1,12 @@
+# pyproject.toml  (repo root)
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]   # tells pip how to build
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cosmo_compression"               # must be unique within one Python env
+version = "0.0.0"                        # any placeholder string is fine
+
+[tool.setuptools]
+package-dir = {"" = "src"}               # <-- only extra line for the src layout
