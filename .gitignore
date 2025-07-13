@@ -6,4 +6,4 @@ __pycache__
 *.pth
 *.pt
 src/cosmo_compression/results/*
-src/cosmo_compression.egg-info/*
+*.egg-info/
