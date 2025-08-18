@@ -15,8 +15,6 @@ from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.callbacks import ModelCheckpoint, LearningRateMonitor
 from lightning import Trainer
 from lightning.pytorch import seed_everything
-import matplotlib.pyplot as plt
-import numpy as np
 # from datasets import load_dataset
 
 import torch.nn as nn
@@ -94,7 +92,7 @@ def get_camels_dataloaders(batch_size, num_workers, idx_train, idx_val, map_type
 
     return train_loader, val_loader, len(train_data), len(val_data)
 
-def main(args):
+def train(args):
     seed_everything(137, workers=True)
 
     logger = None
@@ -134,53 +132,104 @@ def main(args):
             parameters=['Omega_m', 'sigma_8'],
         )
 
+    print(f'Using {n_train} training samples and {n_val} validation samples from {args.dataset}.')
+
+    checkpoint_callback = ModelCheckpoint(
+        dirpath=Path(args.output_dir) / f'{args.run_name}',
+        filename='step={step}-{val_loss:.3f}',
+        save_top_k=1,
+        monitor='val_loss',
+        save_last=True,
+        every_n_train_steps=args.save_every,
+    )
+    lr_monitor = LearningRateMonitor(logging_interval='step')
+
+    def init_weights(m):
+        if isinstance(m, nn.Linear):
+            nn.init.kaiming_normal_(m.weight, a=0, mode='fan_in', nonlinearity='relu')
+            m.bias.data.fill_(0.01)
+
+    # fm = represent.Represent(
+    #     log_wandb=args.use_wandb,
+    #     unconditional=args.unconditional,
+    #     latent_img_channels=16,
+    # )
+    # fm.apply(init_weights)
+    # fm.train()
+    # net = represent.ConvVAE(log_wandb=args.use_wandb,)
+    net = google.FactorizedPrior(args.N_channels, args.M_channels, kl_weight=args.kl_weight, log_wandb=args.use_wandb)
+    net.apply(init_weights)
+    net.train()
 
 
-    model = google.FactorizedPrior.load_from_checkpoint(args.ckpt_path)
-    model.eval()
-    print(model)
-    x, _ = next(iter(val_loader))
-    x = x.cuda()
-    with torch.no_grad():
-        output, mu, logvar = model(x)
-    image_index = 0
-    # plot latent images
-    with torch.no_grad():
-        enc_out = model.encoder(x)
-        print(enc_out.shape)
-    fig, axes = plt.subplots(2, 4, figsize=(12, 4))
-    axes = axes.flatten()
-    for i, ax in enumerate(axes):
-        ax.imshow(enc_out[image_index, i:i+1, : , :].detach().cpu().permute(1, 2, 0).numpy())
-        ax.axis("off")
-    plt.savefig("cosmo_compression/vae_results/vae_latents_0602.png")
 
-    # plot field reconstruction
-    
-    fig, ax = plt.subplots(1, 2, figsize=(12, 4))
-    ax[0].imshow(x[image_index, :, : , :].detach().cpu().permute(1, 2, 0).numpy())
-    ax[1].imshow(output[image_index, :, : , :].detach().cpu().permute(1, 2, 0).numpy())
-    ax[0].set_title("x")
-    ax[1].set_title("Reconstructed x")
-    plt.savefig("cosmo_compression/vae_results/vae_field_reconstruction_0602.png")
-    np.save("cosmo_compression/vae_results/vae_field_reconstruction_0602.npy", output[image_index, :, : , :].detach().cpu().permute(1, 2, 0).numpy())
-    plt.close()
+    trainer = Trainer(
+        max_steps=args.max_steps,
+        gradient_clip_val=args.grad_clip,
+        logger=logger,
+        log_every_n_steps=50,
+        accumulate_grad_batches=args.accumulate_gradients or 1,
+        callbacks=[checkpoint_callback, lr_monitor],
+        devices=args.gpus,
+        check_val_every_n_epoch=None,
+        val_check_interval=args.eval_every,
+        max_epochs=300,
+        profiler="simple" if args.profile else None,
+        strategy="ddp_find_unused_parameters_true",
+        accelerator="gpu",
+    )
+    trainer.fit(model=net, train_dataloaders=train_loader, val_dataloaders=val_loader)
+
+def main():
+    # model = represent.BetaVAE()
+    model = google.FactorizedPrior(128, 64, kl_weight=args.kl_weight, log_wandb=args.use_wandb)
+    input = torch.randn(17, 1, 256, 256)
+    out = model.encoder(input)
+    print(out.shape)
     return
+    dec_out, mu, logvar = model(input)
+    print(dec_out.shape)
+    print(mu.shape)
+    print(logvar.shape)
+    loss = model.get_loss(input)
 
-
-
+    enc_total = sum([param.nelement() for param in model.encoder.parameters()])
+    mu_total = sum([param.nelement() for param in model.fc_mu.parameters()])
+    logvar_total = sum([param.nelement() for param in model.fc_logvar.parameters()])
+    dec_total = sum([param.nelement() for param in model.decoder.parameters()])
+    print(f"Number of enc params: {enc_total}")
+    print(f"Number of mu params: {mu_total}")
+    print(f"Number of logvar params: {logvar_total}")
+    print(f"Number of dec params: {dec_total}")
+    
 if __name__ == "__main__":
     parser = ArgumentParser()
+    parser.add_argument("--output_dir", default="", help="output_directory")
+    parser.add_argument("--run_name", default="betavae", type=str, help="WandB run name")
     parser.add_argument("--dataset", choices=['camels', 'celeba'], default='camels', help="Which dataset to use")
+    parser.add_argument("--celeba_root", type=str, default='../../../monolith/global_data/astro_compression/', help="Root directory for CelebA data")
+    parser.add_argument('--unconditional', action='store_true', default=False)
+    parser.add_argument("--learning_rate", default=2e-4, type=float)
+    parser.add_argument("--grad_clip", default=1.0, type=float)
+    parser.add_argument("--total_steps", default=2_000, type=int)
+    parser.add_argument("--warmup", default=5000, type=int)
+    parser.add_argument("--max_steps", default=10_000_000, type=int)
+    parser.add_argument("--batch_size", default=16, type=int)
+    parser.add_argument("--accumulate_gradients", default=None, type=int)
+    parser.add_argument("--num_workers", default=0, type=int)
+    parser.add_argument("--save_every", default=100, type=int)
+    parser.add_argument("--eval_every", default=50, type=int)
+    parser.add_argument("--latent_dim", default=256, type=int)
+    parser.add_argument('--train_size', type=int, default=14_000, help="Number of training samples to use")
+    parser.add_argument('--val_size', type=int, default=1000, help="Number of validation samples to use")
+    parser.add_argument('--use_wandb', action='store_true', default=False)
+    parser.add_argument('--profile', action='store_true', default=False)
+    parser.add_argument('--gpus', type=int, default=1, help="Number of GPUs to use")
     parser.add_argument('--N_channels', type=int, default=128, help="number of earlier channels")
     parser.add_argument('--M_channels', type=int, default=64, help="number of final layer channels")
     parser.add_argument('--kl_weight', type=float, default=1.0, help="KL loss weight")
-    parser.add_argument('--train_size', type=int, default=14_000, help="Number of training samples to use")
-    parser.add_argument('--val_size', type=int, default=1000, help="Number of validation samples to use")
-    parser.add_argument("--batch_size", default=16, type=int)
-    parser.add_argument("--num_workers", default=0, type=int)
-    parser.add_argument('--use_wandb', action='store_true', default=False)
-    parser.add_argument("--ckpt_path", default="", help="checkpoint filepath")
-    #/home/tianqiu/astro/output/128_64_4x4_0.001kl_no_gelu/last.ckpt
+
+
     args = parser.parse_args()
-    main(args)
+    train(args)
+    # main()

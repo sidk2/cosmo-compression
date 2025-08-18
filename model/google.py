@@ -39,10 +39,6 @@ class FactorizedPrior(LightningModule):
             GDN(N),
             conv(N, N),
             GDN(N),
-            conv(N, N),
-            GDN(N),
-            conv(N, N),
-            GDN(N),
             conv(N, M),
         )
         self.decoder = nn.Sequential(
@@ -52,16 +48,12 @@ class FactorizedPrior(LightningModule):
             GDN(N, inverse=True),
             deconv(N, N),
             GDN(N, inverse=True),
-            deconv(N, N),
-            GDN(N, inverse=True),
-            deconv(N, N),
-            GDN(N, inverse=True),
             deconv(N, 1),
         )
         self.N = N
         self.M = M
-        self.latent_dim = 256
-        self.final_spatial_dims = 4
+        self.latent_dim = 1024
+        self.final_spatial_dims = 16
         # vae components
         self.fc_mu = nn.Linear(self.M * self.final_spatial_dims * self.final_spatial_dims, self.latent_dim)
         self.fc_logvar = nn.Linear(self.M * self.final_spatial_dims * self.final_spatial_dims, self.latent_dim)
@@ -80,7 +72,7 @@ class FactorizedPrior(LightningModule):
         latent = self.reparameterize(mu, logvar)
         latent = self.fc_decoder(latent)
         # latent = nn.GELU()(latent)
-        latent = latent.view(x.size(0), self.final_spatial_dims, self.final_spatial_dims)
+        latent = latent.view(x.size(0), self.M, self.final_spatial_dims, self.final_spatial_dims)
         dec_out = self.decoder(latent)
         return dec_out, mu, logvar
 
@@ -142,7 +134,7 @@ class FactorizedPrior(LightningModule):
         recon_loss = nn.functional.mse_loss(out, y)
         kl_loss = torch.mean(-0.5 * torch.sum(1 + logvar - mu ** 2 - logvar.exp(), dim=1),
                             dim=0
-        )
+            )
         # beta scaling of kl loss
         loss = recon_loss +  self.kl_weight * kl_loss
         # loss = recon_loss
